@@ -195,7 +195,7 @@
         // gets the first form element on the page
         getFirstForm = function () {
             var vforms = document.getElementsByTagName('form');
-            if (exists(vforms) && vforms.count > 0) {
+            if (exists(vforms) && vforms.length > 0) {
                 return vforms[0];
             }
             return null;
@@ -252,7 +252,7 @@
         // fades an element in
         // el: The element to fade in
         // display: (optional) set display:block by default or override with your own.
-        fadeIn = function (el, completeFunction) {
+        fadeIn = function (el, completeFunction, intervalSpeed) {
             if (isElement(el)) {
                 var fadeEffect = setInterval(function () {
                     if (!el.style.opacity) {
@@ -684,7 +684,7 @@
     app['uniqueId'] = uid;
     app['exists'] = exists;
     app['toCamel'] = toCamel;
-    app['toBoolean'] - toBoolean;
+    app['toBoolean'] = toBoolean;
     app['isFunction'] = isFunction;
     app['isNodeList'] = isNodeList;
     app['isArray'] = isArray;
