@@ -690,6 +690,117 @@
             }
         },
 
+        // Builds a plain object model from one or more input collections (NodeLists
+        // or arrays of DOM elements). Handles checkbox/radio/file/other input types.
+        // Prepends the anti-forgery token if a form containing one exists on the page.
+        createModel = function () {
+            var model = {}, token = getToken();
+            if (exists(token) && exists(token.value)) {
+                model[token.name] = token.value;
+            }
+            for (var argIdx = 0; argIdx < arguments.length; argIdx++) {
+                var collection = arguments[argIdx];
+                if (!exists(collection)) continue;
+                for (var i = 0; i < collection.length; i++) {
+                    var el = collection[i];
+                    if (!isElement(el)) continue;
+                    var id = el.id, name = el.name;
+                    if (el.type === 'checkbox') {
+                        model[id] = el.checked;
+                        if (isString(name) && name.indexOf('.') > 0) {
+                            model[name] = el.checked;
+                        }
+                    } else if (el.type === 'radio') {
+                        if (el.checked) {
+                            if (!isEmpty(name) && name !== id) {
+                                model[name] = el.value;
+                            } else if (!isEmpty(id)) {
+                                model[id] = el.value;
+                            }
+                        }
+                    } else if (el.type === 'file') {
+                        if (el.files.length === 1) {
+                            model[id] = el.files[0];
+                        } else {
+                            for (var j = 0; j < el.files.length; j++) {
+                                model[id + '[' + j + ']'] = el.files[j];
+                            }
+                        }
+                    } else {
+                        if (!isEmpty(name) && name !== id && !isEmpty(id)) {
+                            model[name] = el.value;
+                        } else if (!isEmpty(id)) {
+                            model[id] = el.value;
+                        }
+                    }
+                }
+            }
+            return model;
+        },
+
+        getFormModel = function (formId) {
+            var form = getElement(formId);
+            if (!isElement(form)) return null;
+            return createModel(
+                form.querySelectorAll('input'),
+                form.querySelectorAll('select'),
+                form.querySelectorAll('textarea')
+            );
+        },
+
+        getFormJson = function (formId) {
+            var model = getFormModel(formId);
+            return exists(model) ? JSON.stringify(model) : '';
+        },
+
+        // Reads data-basejs-param-{name} attrs into an object. data-basejs-form=formId
+        // pulls in that form's model. data-basejs-target-property=propName uses the
+        // element's own value under propName. Prefix is data-basejs-* (playbook §5).
+        getElementModel = function (element) {
+            var model = {}, token = getToken();
+            if (!isElement(element)) return model;
+            var attrs = element.attributes, paramPrefix = 'data-basejs-param-';
+            for (var i = 0; i < attrs.length; i++) {
+                var attr = attrs[i], name = attr.name;
+                if (name.indexOf(paramPrefix) === 0) {
+                    var key = name.substring(paramPrefix.length);
+                    if (key.length > 0) {
+                        model[key] = attr.value;
+                    }
+                } else if (name === 'data-basejs-form') {
+                    var formModel = getFormModel(attr.value);
+                    for (var p in formModel) {
+                        model[p] = formModel[p];
+                    }
+                } else if (name === 'data-basejs-target-property') {
+                    model[attr.value] = element.value;
+                }
+            }
+            if (exists(token) && exists(token.value)) {
+                model[token.name] = token.value;
+            }
+            return model;
+        },
+
+        // Full-page POST via a dynamically-created hidden form (not AJAX).
+        // Used for flows that navigate rather than replacing an inline element.
+        submitModel = function (url, model) {
+            var form = document.createElement('form');
+            form.setAttribute('method', 'post');
+            form.setAttribute('action', url);
+            for (var key in model) {
+                if (exists(model[key])) {
+                    var input = document.createElement('input');
+                    input.setAttribute('type', 'hidden');
+                    input.setAttribute('name', key);
+                    input.setAttribute('value', model[key]);
+                    form.appendChild(input);
+                }
+            }
+            document.body.appendChild(form);
+            form.submit();
+        },
+
         // find the first auto focus entry and set it as the current field (only when returning from an ajax request)
         autoFocus = function () {
             var velement = getElementBySelector('[autofocus=autofocus],[autofocus=true]');
@@ -830,6 +941,10 @@
     app['linkButtonToChange'] = linkButtonToChange;
     app['datepicker'] = datepicker;
     app['datepickerSet'] = datepickerSet;
+    app['getFormModel'] = getFormModel;
+    app['getFormJson'] = getFormJson;
+    app['getElementModel'] = getElementModel;
+    app['submitModel'] = submitModel;
     app['autoFocus'] = autoFocus;
     app['initForms'] = initForms;
     app['initInputFilters'] = initInputFilters;
