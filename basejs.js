@@ -653,6 +653,19 @@
                 }
             }
         },
+        // Delegated click handler for [data-basejs-posturl] elements. One document-level
+        // listener replaces per-button inline onclick handlers, enabling strict CSP.
+        initDelegatedButtonPost = function () {
+            if (initDelegatedButtonPost.attached) return;
+            initDelegatedButtonPost.attached = true;
+            document.addEventListener('click', function (ev) {
+                var el = ev.target.closest('[data-basejs-posturl]');
+                if (!el || el.tagName === 'FORM') return;  // forms handled by initForms via submit
+                ev.preventDefault();
+                // synthetic event so eventSource(ev) inside postAndReplace finds the button via currentTarget
+                postAndReplace({ currentTarget: el, preventDefault: function () {} });
+            });
+        },
         initInputFilters = function () {
             if (exists(basejsinputfilter) && isFunction(basejsinputfilter.init)) {
                 basejsinputfilter.init();
@@ -672,6 +685,7 @@
             setFieldValidations();
             initValidations();
             initButtons();
+            initDelegatedButtonPost();
             autoFocus();
             initInputFilters();
             executeDeferredFunctions();
@@ -720,6 +734,7 @@
     app['initForms'] = initForms;
     app['initInputFilters'] = initInputFilters;
     app['initButtons'] = initButtons;
+    app['initDelegatedButtonPost'] = initDelegatedButtonPost;
     app['executeDeferredFunctions'] = executeDeferredFunctions;
     app['init'] = init;
     window['basejs'] = app;
