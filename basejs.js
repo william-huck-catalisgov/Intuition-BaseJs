@@ -671,6 +671,25 @@
             }
         },
 
+        // thin ej2 DatePicker wrapper — ej2 is already vanilla, no jQuery needed
+        datepicker = function (id, max, min, dateFormat) {
+            var el = getElement(id);
+            if (!isElement(el) || exists(el.ej2_instances)) return;
+            new ej.calendars.DatePicker({
+                min: exists(min) ? min : null,
+                max: exists(max) ? max : null,
+                format: exists(dateFormat) ? dateFormat : "MM/dd/yyyy",
+                placeholder: "MM/DD/YYYY"
+            }).appendTo('#' + id);
+        },
+
+        datepickerSet = function (id, date) {
+            var el = getElement(id);
+            if (isElement(el) && exists(el.ej2_instances)) {
+                el.ej2_instances[0].value = new Date(date);
+            }
+        },
+
         // find the first auto focus entry and set it as the current field (only when returning from an ajax request)
         autoFocus = function () {
             var velement = getElementBySelector('[autofocus=autofocus],[autofocus=true]');
@@ -809,6 +828,8 @@
     app['onChange'] = onChange;
     app['linkInputToFunction'] = linkInputToFunction;
     app['linkButtonToChange'] = linkButtonToChange;
+    app['datepicker'] = datepicker;
+    app['datepickerSet'] = datepickerSet;
     app['autoFocus'] = autoFocus;
     app['initForms'] = initForms;
     app['initInputFilters'] = initInputFilters;
