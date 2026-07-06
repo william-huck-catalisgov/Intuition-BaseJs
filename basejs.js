@@ -432,7 +432,7 @@
                 else {
                     var e = getElement(vreplaceId);
 
-                    // if replacement id exists, respond with response.
+                    // trust boundary: server-rendered partial HTML — do not accept untrusted content on this path
                     if (exists(e)) {
                         e.innerHTML = data.response;
                     }
@@ -443,10 +443,8 @@
                         vmodal.hide();
                     }
 
-                    // run external success function
-                    if (exists(vsuccessFunction)) {
-                        eval(vsuccessFunction); // will replace this later on, but works for now. need to get getFunctionFromString working right
-                    }
+                    // external success callback — resolved by function ref or dotted-name string, never eval
+                    invokeCallback(vsuccessFunction);
                 }
             };
 
@@ -467,19 +465,20 @@
                 // load errors to page
                 if (exists(e)) {
                     if (data.statusCode >= 500) {
-                        // rewrite the whole page if it's a 500. innerHTML doesn't work well with modals for 500 errors
-                        document.write(data.response);
+                        // 500s often return full ASP.NET error pages with stack traces / config
+                        // details — never write raw server response into the DOM. Log for devs,
+                        // show a safe generic message in the error target instead.
+                        console.error('basejs: server error', data.statusCode, data.response);
+                        e.innerHTML = '<div class="alert alert-danger" role="alert">An unexpected error occurred. Please try again.</div>';
                     }
                     else {
-                        // write the response to the element
+                        // trust boundary: server-rendered partial HTML — do not accept untrusted content on this path
                         e.innerHTML = data.response;
                     }
                 }
 
-                // run additional external error functions
-                if (exists(verrorFunction) && isFunction(verrorFunction)) {
-                    verrorFunction();
-                }
+                // external error callback — resolved by function ref or dotted-name string, never eval
+                invokeCallback(verrorFunction);
             };
 
             // after success or failures, we will run complete
@@ -487,10 +486,8 @@
                 // put the button back like it was
                 showOriginal(vcurrentButton, vbusy);
 
-                // run additional external error functions
-                if (exists(vcompleteFunction) && isFunction(vcompleteFunction)) {
-                    vcompleteFunction();
-                }
+                // external complete callback — resolved by function ref or dotted-name string, never eval
+                invokeCallback(vcompleteFunction);
 
                 // initialize everything on the page again.
                 init();
@@ -541,15 +538,25 @@
             return false;
         },
         getFunctionFromString = function (string) {
+            if (!isString(string)) return null;
             var scope = window;
             var scopeSplit = string.split('.');
-            for (i = 0; i < scopeSplit.length - 1; i++) {
+            for (var i = 0; i < scopeSplit.length - 1; i++) {
                 scope = scope[scopeSplit[i]];
 
                 if (scope == undefined) return;
             }
 
             return scope[scopeSplit[scopeSplit.length - 1]];
+        },
+
+        // Resolves a callback (function reference or dotted-name string) and invokes it.
+        // Used in place of eval() for data-basejs-*function callbacks — never trust
+        // strings as executable code.
+        invokeCallback = function (cb) {
+            if (!exists(cb)) return;
+            var fn = isFunction(cb) ? cb : (isString(cb) ? getFunctionFromString(cb) : null);
+            if (isFunction(fn)) fn();
         },
         // initialize all validations so that once you start typing it will clear out errors
         // form: The form element to initialize.
