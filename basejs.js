@@ -600,6 +600,77 @@
             }
         },
 
+        // Ported from intuition.js (vanilla equivalents of $-based helpers)
+
+        // returns true for null, undefined, non-string, or whitespace-only string
+        isEmpty = function (a) {
+            if (exists(a) && isString(a) && a.trim().length > 0) {
+                return false;
+            }
+            return true;
+        },
+
+        // accepts element ids (strings) or DOM elements; false if ANY is empty
+        hasObjectValue = function () {
+            for (var i = 0; i < arguments.length; i++) {
+                var arg = arguments[i], el = null;
+                if (isString(arg)) {
+                    el = getElement(arg);
+                } else if (isElement(arg)) {
+                    el = arg;
+                }
+                if (isElement(el) && isEmpty(el.value)) {
+                    return false;
+                }
+            }
+            return true;
+        },
+
+        copyValue = function (srcId, tgtId) {
+            var src = getElement(srcId), tgt = getElement(tgtId);
+            if (isElement(src) && isElement(tgt)) {
+                tgt.value = src.value;
+            }
+        },
+
+        // each argument is a [srcId, tgtId] pair
+        copyValues = function () {
+            for (var i = 0; i < arguments.length; i++) {
+                var pair = arguments[i];
+                if (isArray(pair) && pair.length === 2) {
+                    copyValue(pair[0], pair[1]);
+                }
+            }
+        },
+
+        onClick = function (id, fn) {
+            var el = getElement(id);
+            if (isElement(el) && isFunction(fn)) {
+                el.addEventListener('click', fn);
+            }
+        },
+
+        onChange = function (id, fn) {
+            var el = getElement(id);
+            if (isElement(el) && isFunction(fn)) {
+                el.addEventListener('change', fn);
+            }
+        },
+
+        // alias for onChange, preserved for API compatibility with intuition.js
+        linkInputToFunction = function (id, fn) {
+            onChange(id, fn);
+        },
+
+        linkButtonToChange = function (checkboxId, targetId) {
+            var checkbox = getElement(checkboxId), target = getElement(targetId);
+            if (isElement(checkbox) && isElement(target)) {
+                checkbox.addEventListener('change', function () {
+                    target.disabled = !checkbox.checked;
+                });
+            }
+        },
+
         // find the first auto focus entry and set it as the current field (only when returning from an ajax request)
         autoFocus = function () {
             var velement = getElementBySelector('[autofocus=autofocus],[autofocus=true]');
@@ -730,6 +801,14 @@
     app['postAndReplace'] = postAndReplace;
     app['initValidations'] = initValidations;
     app['copyInputField'] = copyInputField;
+    app['isEmpty'] = isEmpty;
+    app['hasObjectValue'] = hasObjectValue;
+    app['copyValue'] = copyValue;
+    app['copyValues'] = copyValues;
+    app['onClick'] = onClick;
+    app['onChange'] = onChange;
+    app['linkInputToFunction'] = linkInputToFunction;
+    app['linkButtonToChange'] = linkButtonToChange;
     app['autoFocus'] = autoFocus;
     app['initForms'] = initForms;
     app['initInputFilters'] = initInputFilters;
