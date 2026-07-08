@@ -947,8 +947,21 @@
                 }
             }
         },
-        // Delegated click handler for [data-basejs-posturl] elements. One document-level
-        // listener replaces per-button inline onclick handlers, enabling strict CSP.
+        // Route activation of a [data-basejs-posturl] element:
+        //   WITH data-basejs-updatetarget -> in-place AJAX replace (postAndReplace)
+        //   WITHOUT one                    -> navigate via a full-page POST (submitModel)
+        // The navigate case restores the PostLink "go to a page" behaviour (a role=button
+        // element posting to a URL whose action returns a full View, not a partial).
+        handleDelegatedPost = function (el) {
+            if (exists(getDataFromTag(el, 'updatetarget'))) {
+                // synthetic event so eventSource(ev) inside postAndReplace finds the element via currentTarget
+                postAndReplace({ currentTarget: el, preventDefault: function () {} });
+            } else {
+                submitModel(getDataFromTag(el, 'posturl'), getElementModel(el));
+            }
+        },
+        // Delegated activation for [data-basejs-posturl] elements. One document-level
+        // listener replaces per-element inline onclick handlers, enabling strict CSP.
         initDelegatedButtonPost = function () {
             if (initDelegatedButtonPost.attached) return;
             initDelegatedButtonPost.attached = true;
@@ -956,8 +969,18 @@
                 var el = ev.target.closest('[data-basejs-posturl]');
                 if (!el || el.tagName === 'FORM') return;  // forms handled by initForms via submit
                 ev.preventDefault();
-                // synthetic event so eventSource(ev) inside postAndReplace finds the button via currentTarget
-                postAndReplace({ currentTarget: el, preventDefault: function () {} });
+                handleDelegatedPost(el);
+            });
+            // Keyboard activation for role=button PostLinks (e.g. <span tabindex="0">) — WCAG 2.1.1.
+            // Native button/a/input already fire a click on Enter/Space, so skip them here.
+            document.addEventListener('keydown', function (ev) {
+                if (ev.key !== 'Enter' && ev.key !== ' ' && ev.key !== 'Spacebar') return;
+                var el = ev.target.closest('[data-basejs-posturl]');
+                if (!el || el.tagName === 'FORM') return;
+                var tag = el.tagName.toLowerCase();
+                if (tag === 'button' || tag === 'a' || tag === 'input') return;
+                ev.preventDefault();  // Space would otherwise scroll the page
+                handleDelegatedPost(el);
             });
         },
         initInputFilters = function () {
