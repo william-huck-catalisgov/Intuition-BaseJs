@@ -45,6 +45,16 @@ These functions can be used on pages and/or in other javascript files by calling
 - [Method] copyInputField(ev, sourceId, targetId) - Copies input value from one input control to another. Can be set up using tags on the button or manually via a source and target id.
 - [Method] initForms() - automatically load forms on the page without requiring the onsubmit routine on each one.
 - [Method] initButtons() - automatically loads buttons to copy data from one field to another field
+- [Method] on(target, event, fn) - direct event binding for any event type (target = element or id). Generalizes onClick/onChange.
+- [Method] delegate(event, selector, fn, root) - ONE delegated listener at root (document by default) that fires fn when an event bubbles from an element matching selector. jQuery `$(root).on(event, selector, fn)` equivalent; CSP-safe replacement for inline on* handlers. fn is called as fn.call(matchedElement, ev, matchedElement).
+- [Method] resolveElement(target) - returns target if it is already an element, otherwise getElement(target).
+- [Method] addClass(target, className) / removeClass(target, className) - add/remove one or more (space-separated) classes.
+- [Method] toggleClass(target, className, force) - toggle a class; optional boolean force to set/unset.
+- [Method] hasClass(target, className) - true if the element has the class.
+- [Method] val(target[, value]) - get (1 arg) or set (2 args) an element's .value.
+- [Method] attr(target, name[, value]) - get (2 args) or set (3 args) an attribute.
+- [Method] html(target[, value]) - get (1 arg) or set (2 args) innerHTML.
+- [Method] text(target[, value]) - get (1 arg) or set (2 args) textContent.
 - [Method] init() - initialize anything on the page that is needed.
 
 

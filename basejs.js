@@ -152,25 +152,20 @@
             return null;
         },
 
-        // uses a selector to pull the first element that matches
+        // uses a selector to pull the first element that matches (returns null when none)
         getElementBySelector = function (selector, el) {
-            var elements = null;
-            elements = getElementsBySelector(selector, el);
-            return (exists(elements) && isArray(elements)) ? elements[0] : elements;
+            if (!isString(selector)) {
+                return null;
+            }
+            return exists(el) ? el.querySelector(selector) : document.querySelector(selector);
         },
 
-        // uses a selector to pull all elements that match
+        // uses a selector to pull all elements that match (returns a NodeList, empty when none)
         getElementsBySelector = function (a, el) {
-            var elements = null;
-            if (isString(a)) {
-                if (exists(el)) {
-                    elements = el.querySelector(a);
-                }
-                else {
-                    elements = document.querySelector(a);
-                }
+            if (!isString(a)) {
+                return null;
             }
-            return elements;
+            return exists(el) ? el.querySelectorAll(a) : document.querySelectorAll(a);
         },
 
         // verifies that the id passed in is an element and then returns the value of the DOM element.
@@ -678,6 +673,97 @@
             }
         },
 
+        // Resolve a target that may already be an element or an element id string.
+        resolveElement = function (target) {
+            return isElement(target) ? target : getElement(target);
+        },
+
+        // Direct event binding for any event type. Generalizes onClick/onChange.
+        // target may be an element or an element id. jQuery equivalent: $(el).on(event, fn).
+        on = function (target, event, fn) {
+            var el = resolveElement(target);
+            if (isElement(el) && isString(event) && isFunction(fn)) {
+                el.addEventListener(event, fn);
+            }
+        },
+
+        // Generic delegated event handler: ONE listener at root (document by default)
+        // fires fn whenever an event bubbles from an element matching selector.
+        // jQuery equivalent: $(root).on(event, selector, fn). CSP-safe replacement for
+        // inline on* handlers. fn is invoked as fn.call(matchedElement, ev, matchedElement).
+        delegate = function (event, selector, fn, root) {
+            var scope = exists(root) ? resolveElement(root) : document;
+            if (!isString(event) || !isString(selector) || !isFunction(fn)) {
+                return;
+            }
+            if (scope !== document && !isElement(scope)) {
+                return;
+            }
+            scope.addEventListener(event, function (ev) {
+                var src = ev.target,
+                    match = (exists(src) && isFunction(src.closest)) ? src.closest(selector) : null;
+                if (match && (scope === document || scope.contains(match))) {
+                    fn.call(match, ev, match);
+                }
+            });
+        },
+
+        // classList helpers — target may be an element or id. className may be space-separated.
+        addClass = function (target, className) {
+            var el = resolveElement(target), names;
+            if (isElement(el) && isString(className)) {
+                names = className.split(/\s+/).filter(Boolean);
+                if (names.length) { el.classList.add.apply(el.classList, names); }
+            }
+        },
+        removeClass = function (target, className) {
+            var el = resolveElement(target), names;
+            if (isElement(el) && isString(className)) {
+                names = className.split(/\s+/).filter(Boolean);
+                if (names.length) { el.classList.remove.apply(el.classList, names); }
+            }
+        },
+        toggleClass = function (target, className, force) {
+            var el = resolveElement(target);
+            if (isElement(el) && isString(className)) {
+                return isBoolean(force) ? el.classList.toggle(className, force) : el.classList.toggle(className);
+            }
+            return false;
+        },
+        hasClass = function (target, className) {
+            var el = resolveElement(target);
+            return (isElement(el) && isString(className)) ? el.classList.contains(className) : false;
+        },
+
+        // get (1 arg) or set (2 args) an element's .value
+        val = function (target, value) {
+            var el = resolveElement(target);
+            if (!isElement(el)) { return null; }
+            if (arguments.length > 1) { el.value = value; return value; }
+            return el.value;
+        },
+        // get (2 args) or set (3 args) an attribute
+        attr = function (target, name, value) {
+            var el = resolveElement(target);
+            if (!isElement(el) || !isString(name)) { return null; }
+            if (arguments.length > 2) { el.setAttribute(name, value); return value; }
+            return el.getAttribute(name);
+        },
+        // get (1 arg) or set (2 args) innerHTML
+        html = function (target, value) {
+            var el = resolveElement(target);
+            if (!isElement(el)) { return null; }
+            if (arguments.length > 1) { el.innerHTML = value; return value; }
+            return el.innerHTML;
+        },
+        // get (1 arg) or set (2 args) textContent
+        text = function (target, value) {
+            var el = resolveElement(target);
+            if (!isElement(el)) { return null; }
+            if (arguments.length > 1) { el.textContent = value; return value; }
+            return el.textContent;
+        },
+
         // thin ej2 DatePicker wrapper — ej2 is already vanilla, no jQuery needed
         datepicker = function (id, max, min, dateFormat) {
             var el = getElement(id);
@@ -944,8 +1030,19 @@
     app['copyValues'] = copyValues;
     app['onClick'] = onClick;
     app['onChange'] = onChange;
+    app['on'] = on;
+    app['delegate'] = delegate;
     app['linkInputToFunction'] = linkInputToFunction;
     app['linkButtonToChange'] = linkButtonToChange;
+    app['resolveElement'] = resolveElement;
+    app['addClass'] = addClass;
+    app['removeClass'] = removeClass;
+    app['toggleClass'] = toggleClass;
+    app['hasClass'] = hasClass;
+    app['val'] = val;
+    app['attr'] = attr;
+    app['html'] = html;
+    app['text'] = text;
     app['datepicker'] = datepicker;
     app['datepickerSet'] = datepickerSet;
     app['getFormModel'] = getFormModel;
