@@ -967,6 +967,15 @@
         },
         executeDeferredFunctions = function () {
             var a = window.deferredFunctions, x = 0, l = (isArray(a) ? a.length : 0);
+            // Run-once across ALL executors on the page. A host page may have a legacy
+            // executor that also drains window.deferredFunctions (e.g. intuition.js during
+            // the GlobalCAP BS5 migration); without this guard the deferred setup binds
+            // twice and can swallow the first form submit. Flag is shared on the array so
+            // execution order does not matter.
+            if (isArray(a)) {
+                if (a.executed) { return; }
+                a.executed = true;
+            }
             for (x = 0; x < l; x++) {
                 if (isFunction(a[x])) {
                     a[x]();
