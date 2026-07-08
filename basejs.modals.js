@@ -195,6 +195,24 @@
                 vsharedModals[i].addEventListener('hidden.bs.modal', onHideModal);
             };
         },
+
+        // Programmatically open a Bootstrap 5 modal by id or element. Thin wrapper
+        // over the BS5 Modal API so app code (sharedmodals.js, page scripts) need
+        // not repeat bootstrap.Modal.getOrCreateInstance(el).show() everywhere.
+        openModal = function (target) {
+            var el = basejs.resolveElement(target);
+            if (basejs.isElement(el) && window.bootstrap && window.bootstrap.Modal) {
+                window.bootstrap.Modal.getOrCreateInstance(el).show();
+            }
+        },
+        // Programmatically close/hide a Bootstrap 5 modal by id or element.
+        closeModal = function (target) {
+            var el = basejs.resolveElement(target), instance;
+            if (basejs.isElement(el) && window.bootstrap && window.bootstrap.Modal) {
+                instance = window.bootstrap.Modal.getOrCreateInstance(el);
+                if (instance) { instance.hide(); }
+            }
+        },
         //initButtons = function () {
         //    var vbuttons = basejs.getElementsBySelector('button[data-basejs-posturl]');
         //    if (basejs.exists(vbuttons)) {
@@ -216,6 +234,8 @@
     app['failureModalResponse'] = failModalResponse;
     app['setFailureModal'] = setFailureModal;
     app['loadingModal'] = loadModal;
+    app['open'] = openModal;
+    app['close'] = closeModal;
     basejs['modals'] = app;
     domready(init);
 })();

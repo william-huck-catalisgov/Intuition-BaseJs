@@ -96,7 +96,13 @@ If the response of a post is an error, and this property is set to true, it will
 ```
 
 ## Modal Functions
-
+Loaded as `basejs.modals` (file `basejs.modals.js`); requires Bootstrap 5's modal JS. Auto-wires every `.modal` on the page: a modal whose trigger carries `data-basejs-posturl` (+ optional `data-basejs-param-*`) fetches its body content via AJAX on show, showing a loading modal then a failure modal on error.
+- [Method] basejs.modals.open(target) - programmatically show a BS5 modal (target = element or id). Wraps `bootstrap.Modal.getOrCreateInstance(el).show()`.
+- [Method] basejs.modals.close(target) - programmatically hide a BS5 modal (target = element or id).
+- [Method] basejs.modals.loadingModal([html]) - get/set the loading-modal HTML.
+- [Method] basejs.modals.failureModal([html]) - get/set the failure-modal HTML (`{responseData}` required, `{responseText}` optional).
+- [Method] basejs.modals.failureModalResponse([html]) - get/set the text shown before failure data.
+- [Method] basejs.modals.setFailureModal(element, responseData) - render the failure modal into element.
 
 ## Input Filters &amp; Masks (basejsinputfilter)
 Loaded as `window.basejsinputfilter` (separate file `basejs.inputfilter.js`); auto-inits on DOM ready. Apply behavior by CSS class — no per-page JS needed. Call `basejsinputfilter.initMasks()` to (idempotently) re-wire masks after AJAX-loaded content.
