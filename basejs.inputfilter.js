@@ -64,12 +64,104 @@
             var regex = new RegExp('[^' + validChars + ']', 'g');
             return inputString.replace(regex, '');
         },
+
+        // ---- Formatted input masks (vanilla replacement for jquery.mask) ----
+        // Class-keyed to the exact .mask-* classes GlobalCAP already uses, so the
+        // views/scripts keep their markup and just drop the jQuery init call.
+        // Template masks: '0'/'9'/'#' = a digit slot, everything else is a literal
+        // inserted automatically (jquery.mask semantics for these fixed patterns).
+        // Numeric masks: reverse fill (cents first), optional thousands grouping.
+        maskConfigs = {
+            'mask-phone': { pattern: '(000) 000-0000' },
+            'mask-ssn': { pattern: '000-00-0000' },
+            'mask-fein': { pattern: '00-0000000' },
+            'mask-zip': { pattern: '00000-0000' },
+            'mask-date': { pattern: '00/00/0000' },
+            'mask-date-monthyearonly': { pattern: '00/0000' },
+            'mask-money': { numeric: true, decimals: 2, grouping: true },
+            'mask-decimal': { numeric: true, decimals: 2, grouping: false },
+            'mask-numbers-only': { digits: true }
+        },
+        // format digits into a fixed template; stops emitting once digits run out
+        // so no trailing literals are shown (e.g. 3 phone digits -> "(123").
+        applyTemplateMask = function (pattern, value) {
+            var digits = value.replace(/\D/g, ''), out = '', di = 0, pi = 0, pc;
+            for (pi = 0; pi < pattern.length && di < digits.length; pi++) {
+                pc = pattern.charAt(pi);
+                if (pc === '0' || pc === '9' || pc === '#') {
+                    out += digits.charAt(di++);
+                } else {
+                    out += pc;
+                }
+            }
+            return out;
+        },
+        // add thousands separators to an integer string of digits
+        addGrouping = function (intDigits) {
+            return intDigits.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+        },
+        // reverse numeric mask: last `decimals` digits become the fraction.
+        applyNumericMask = function (value, decimals, grouping) {
+            var digits = value.replace(/\D/g, ''), intPart, decPart;
+            if (digits === '') { return ''; }
+            if (decimals > 0) {
+                while (digits.length <= decimals) { digits = '0' + digits; }
+                intPart = digits.slice(0, digits.length - decimals).replace(/^0+(?=\d)/, '');
+                decPart = digits.slice(digits.length - decimals);
+                return (grouping ? addGrouping(intPart) : intPart) + '.' + decPart;
+            }
+            intPart = digits.replace(/^0+(?=\d)/, '');
+            return grouping ? addGrouping(intPart) : intPart;
+        },
+        // input handler: reformat the field's value against its mask config
+        maskHandler = function (ev) {
+            var el = basejs.eventSource(ev), cfg, formatted;
+            if (!el) { return; }
+            cfg = maskConfigs[el.dataset.maskkey];
+            if (!cfg) { return; }
+            if (cfg.numeric) {
+                formatted = applyNumericMask(el.value, cfg.decimals, cfg.grouping);
+            } else if (cfg.digits) {
+                formatted = el.value.replace(/\D/g, '');
+            } else {
+                formatted = applyTemplateMask(cfg.pattern, el.value);
+            }
+            if (formatted !== el.value) {
+                el.value = formatted;
+                // caret to end (correct while typing forward and for reverse fill)
+                if (el.setSelectionRange) {
+                    try { el.setSelectionRange(formatted.length, formatted.length); } catch (e) { }
+                }
+            }
+        },
+        // wire every .mask-* element on the page (idempotent — safe to re-call
+        // after AJAX content loads, mirroring the old sharedmodals re-masking).
+        initMasks = function () {
+            var key, els, x;
+            for (key in maskConfigs) {
+                if (maskConfigs.hasOwnProperty(key)) {
+                    els = document.getElementsByClassName(key);
+                    for (x = 0; x < els.length; x++) {
+                        if (!els[x].dataset.maskinit) {
+                            els[x].dataset.maskkey = key;
+                            els[x].dataset.maskinit = '1';
+                            els[x].addEventListener('input', maskHandler);
+                            // format any server-rendered pre-populated value
+                            maskHandler({ currentTarget: els[x] });
+                        }
+                    }
+                }
+            }
+        },
+
         // initialize anything on the page that is needed.
         init = function () {
             initInputFilters();
+            initMasks();
         },
         app = {};
         app['init'] = init;
+        app['initMasks'] = initMasks;
         window['basejsinputfilter'] = app;
     domready(init);
 })();

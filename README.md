@@ -98,6 +98,22 @@ If the response of a post is an error, and this property is set to true, it will
 ## Modal Functions
 
 
+## Input Filters &amp; Masks (basejsinputfilter)
+Loaded as `window.basejsinputfilter` (separate file `basejs.inputfilter.js`); auto-inits on DOM ready. Apply behavior by CSS class — no per-page JS needed. Call `basejsinputfilter.initMasks()` to (idempotently) re-wire masks after AJAX-loaded content.
+
+**Character filters** (strip disallowed characters as you type): `filter-name`, `filter-alpha`, `filter-mi`, `filter-alphanumeric`, `filter-address`, `filter-city`, `filter-email`, `filter-numeric`, `filter-decimal`.
+
+**Formatted masks** (vanilla replacement for jquery.mask — drop the class, no `.mask()` call):
+- `mask-phone` → `(000) 000-0000`
+- `mask-ssn` → `000-00-0000`
+- `mask-fein` → `00-0000000`
+- `mask-zip` → `00000-0000`
+- `mask-date` → `00/00/0000`
+- `mask-date-monthyearonly` → `00/0000`
+- `mask-money` → grouped currency with 2 decimals, reverse fill (e.g. `1,234.56`)
+- `mask-decimal` → 2 decimals, no grouping, reverse fill (e.g. `123.45`)
+- `mask-numbers-only` → digits only
+
 ## Full Examples
 
 ### Basic Form Post
