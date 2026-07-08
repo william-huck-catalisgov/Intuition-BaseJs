@@ -59,6 +59,50 @@
             initFilter('filter-decimal', inputFilter);
         },
 
+        // numeric-only: vanilla replacement for jquery.numeric. Restricts input to
+        // digits + a single decimal point; on type=number fields also normalizes to
+        // two decimals on blur.
+        numericOnlyInput = function (ev) {
+            var el = basejs.eventSource(ev), v, i;
+            if (!el) { return; }
+            v = el.value.replace(/[^0-9.]/g, '');
+            i = v.indexOf('.');
+            if (i !== -1) { v = v.slice(0, i + 1) + v.slice(i + 1).replace(/\./g, ''); }
+            if (v !== el.value) { el.value = v; }
+        },
+        numericOnlyBlur = function (ev) {
+            var el = basejs.eventSource(ev), n;
+            if (!el) { return; }
+            n = parseFloat(el.value);
+            if (isNaN(n)) { n = 0; }
+            el.value = n.toFixed(2);
+        },
+        initNumericOnly = function () {
+            var els = document.getElementsByClassName('numeric-only'), x, el, type;
+            for (x = 0; x < els.length; x++) {
+                el = els[x];
+                if (el.dataset.numericonlyinit) { continue; }
+                el.dataset.numericonlyinit = '1';
+                el.addEventListener('input', numericOnlyInput);
+                type = (el.getAttribute('type') || '').toLowerCase();
+                if (type === 'number') { el.addEventListener('blur', numericOnlyBlur); }
+            }
+        },
+        // force-uppercase: uppercase a text input's value as the user types.
+        forceUppercaseInput = function (ev) {
+            var el = basejs.eventSource(ev);
+            if (el) { el.value = el.value.toUpperCase(); }
+        },
+        initForceUppercase = function () {
+            var els = document.getElementsByClassName('force-uppercase'), x, el;
+            for (x = 0; x < els.length; x++) {
+                el = els[x];
+                if (el.dataset.forceupperinit) { continue; }
+                el.dataset.forceupperinit = '1';
+                el.addEventListener('input', forceUppercaseInput);
+            }
+        },
+
         // remove characters based on the regex provided
         removeChars = function (validChars, inputString) {
             var regex = new RegExp('[^' + validChars + ']', 'g');
@@ -158,10 +202,14 @@
         init = function () {
             initInputFilters();
             initMasks();
+            initNumericOnly();
+            initForceUppercase();
         },
         app = {};
         app['init'] = init;
         app['initMasks'] = initMasks;
+        app['initNumericOnly'] = initNumericOnly;
+        app['initForceUppercase'] = initForceUppercase;
         window['basejsinputfilter'] = app;
     domready(init);
 })();
