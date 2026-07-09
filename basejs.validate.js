@@ -223,10 +223,122 @@ window.basejsvalidate = (function () {
         return ctx;
     }
 
+    /* ======================================================================
+     * WS3.2: data-val-* binder + standard rule validators
+     * Semantics mirror jquery.validate + MVC unobtrusive:
+     *  - a field that is empty AND not required is "optional" => every
+     *    non-required rule passes (matches jquery.validate .optional()).
+     *  - required trims text; regex is a FULL-string match; email/phone/number
+     *    use the same regexes .NET/jquery.validate use.
+     * ==================================================================== */
+
+    var EMAIL_RE = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
+    var PHONE_RE = /^(\+\s?)?((?!\+.*)\(\+?\d+([\s\-\.]?\d+)?\)|\d+)([\s\-\.]?(\(\d+([\s\-\.]?\d+)?\)|\d+))*(\s?(x|ext\.?)\s?\d+)?$/;
+    var NUMBER_RE = /^(?:-?\d+|-?\d{1,3}(?:,\d{3})+)?(?:\.\d+)?$/;
+
+    function byName(scope, name) {
+        return Array.prototype.slice.call((scope || document).querySelectorAll('[name="' + name.replace(/"/g, '\\"') + '"]'));
+    }
+    function isBlank(value) { return value === null || value === undefined || trim(String(value)).length === 0; }
+    function getValue(element, scope) {
+        var type = (element.type || '').toLowerCase();
+        if (type === 'checkbox') { return element.checked ? (element.value || 'true') : ''; }
+        if (type === 'radio') {
+            var group = byName(scope, element.name), i;
+            for (i = 0; i < group.length; i++) { if (group[i].checked) { return group[i].value; } }
+            return '';
+        }
+        return element.value;
+    }
+    function resolveOtherName(element, other) {
+        if (other && other.indexOf('*.') === 0) {
+            var name = element.name || '', dot = name.lastIndexOf('.');
+            return (dot >= 0 ? name.substring(0, dot + 1) : '') + other.substring(2);
+        }
+        return other;
+    }
+
+    var num = function (v) { return v == null ? null : parseFloat(v); };
+    // each rule: (value, params, element, scope) -> bool. Only invoked for
+    // non-empty values (except required), per the optional() contract above.
+    var RULES = {
+        required: function (value) { return !isBlank(value); },
+        length: function (value, p) { var n = value.length; return (p.min == null || n >= num(p.min)) && (p.max == null || n <= num(p.max)); },
+        minlength: function (value, p) { return value.length >= num(p.min); },
+        maxlength: function (value, p) { return value.length <= num(p.max); },
+        range: function (value, p) { var v = parseFloat(value); return v >= num(p.min) && v <= num(p.max); },
+        min: function (value, p) { return parseFloat(value) >= num(p.min); },
+        max: function (value, p) { return parseFloat(value) <= num(p.max); },
+        number: function (value) { return NUMBER_RE.test(value); },
+        regex: function (value, p) { var m = new RegExp(p.pattern).exec(value); return !!m && m.index === 0 && m[0].length === value.length; },
+        email: function (value) { return EMAIL_RE.test(value); },
+        phone: function (value) { return PHONE_RE.test(value); },
+        equalto: function (value, p, element, scope) {
+            var others = byName(scope, resolveOtherName(element, p.other));
+            return value === (others.length ? getValue(others[0], scope) : '');
+        }
+    };
+    // order determines which message wins when several rules fail at once
+    var RULE_ORDER = ['required', 'length', 'minlength', 'maxlength', 'range', 'min', 'max', 'number', 'regex', 'email', 'phone', 'equalto'];
+
+    // parse an element's data-val-* attributes into { ruleName: { message, ...params } }
+    function readRules(element) {
+        var rules = {}, attrs = element.attributes, i, a, name, rest, dash, rule, param;
+        for (i = 0; i < attrs.length; i++) {
+            a = attrs[i]; name = a.name;
+            if (name.indexOf('data-val-') !== 0) { continue; }
+            rest = name.substring(9); // after 'data-val-'
+            dash = rest.indexOf('-');
+            if (dash === -1) { rules[rest] = rules[rest] || {}; rules[rest].message = a.value; }
+            else { rule = rest.substring(0, dash); param = rest.substring(dash + 1); rules[rule] = rules[rule] || {}; rules[rule][param] = a.value; }
+        }
+        return rules;
+    }
+
+    // validate a single element; returns { valid, rule?, message? }.
+    // EA rules (requiredif/assertthat) are collected but evaluated in WS3.3.
+    function validateField(element, scope) {
+        scope = scope || element.form || document;
+        var rules = readRules(element);
+        var value = getValue(element, scope);
+        var required = !!rules.required; // conditional (requiredif) required is layered in WS3.3
+        if (isBlank(value) && !required) { return { valid: true }; }
+        for (var i = 0; i < RULE_ORDER.length; i++) {
+            var rn = RULE_ORDER[i];
+            if (!rules[rn] || !RULES[rn]) { continue; }
+            if (rn !== 'required' && isBlank(value)) { continue; }
+            if (!RULES[rn](value, rules[rn], element, scope)) { return { valid: false, rule: rn, message: rules[rn].message || '' }; }
+        }
+        return { valid: true };
+    }
+
+    // validate every [data-val="true"] field within a container/form.
+    function validateContainer(container) {
+        container = container || document;
+        var scope = (container.tagName === 'FORM') ? container : document;
+        var fields = Array.prototype.slice.call(container.querySelectorAll('[data-val="true"]'));
+        var results = [], allValid = true, seenRadio = {}, i, el, r;
+        for (i = 0; i < fields.length; i++) {
+            el = fields[i];
+            if (el.name && (el.type || '').toLowerCase() === 'radio') { if (seenRadio[el.name]) { continue; } seenRadio[el.name] = true; }
+            r = validateField(el, el.form || scope);
+            results.push({ element: el, name: el.name, valid: r.valid, rule: r.rule, message: r.message });
+            if (!r.valid) { allValid = false; }
+        }
+        return { valid: allValid, results: results };
+    }
+
     return {
+        // WS3.1 — expression evaluator
         evaluate: function (expression, model) { return evalNode(parse(tokenize(expression)), buildContext(model || {})); },
         addMethod: function (name, func) { addMethod(name, func); },   // custom EA methods (ea.addMethod parity)
         methods: methods,
+        // WS3.2 — data-val-* binder + standard rule validators
+        validateField: validateField,        // (element, scope?) -> { valid, rule?, message? }
+        validateContainer: validateContainer, // (container?) -> { valid, results:[...] }
+        readRules: readRules,                 // (element) -> { rule: { message, ...params } }
+        getValue: getValue,                   // (element, scope?) -> string
+        rules: RULES,                         // rule-name -> validator fn (extensible; WS3.3 adds EA rules)
         // exposed for the test harness / later steps:
         tokenize: tokenize,
         parse: parse
