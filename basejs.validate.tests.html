@@ -197,11 +197,12 @@ var basejsvalidate = (function () {
         max: function (value, p) { return parseFloat(value) <= num(p.max); },
         number: function (value) { return NUMBER_RE.test(value); },
         regex: function (value, p) { var m = new RegExp(p.pattern).exec(value); return !!m && m.index === 0 && m[0].length === value.length; },
+        regexwithoptions: function (value, p) { var m = new RegExp(p.pattern, p.flags).exec(value); return !!m && m.index === 0 && m[0].length === value.length; },
         email: function (value) { return EMAIL_RE.test(value); },
         phone: function (value) { return PHONE_RE.test(value); },
         equalto: function (value, p, element, scope) { var others = byName(scope, resolveOtherName(element, p.other)); return value === (others.length ? getValue(others[0], scope) : ''); }
     };
-    var RULE_ORDER = ['required', 'length', 'minlength', 'maxlength', 'range', 'min', 'max', 'number', 'regex', 'email', 'phone', 'equalto'];
+    var RULE_ORDER = ['required', 'length', 'minlength', 'maxlength', 'range', 'min', 'max', 'number', 'regex', 'regexwithoptions', 'email', 'phone', 'equalto'];
     function readRules(element) {
         var rules = {}, attrs = element.attributes, i, a, name, rest, dash, rule, param;
         for (i = 0; i < attrs.length; i++) {
@@ -343,6 +344,9 @@ var DOM = [
     ['number bad', function () { return fieldValid('<input name="X" data-val="true" data-val-number="n" value="12a">', 'X'); }, false],
     ['equalto match', function () { return fieldValid('<input name="Email" value="a@b.com"><input name="ConfirmEmail" data-val="true" data-val-equalto="c" data-val-equalto-other="Email" value="a@b.com">', 'ConfirmEmail'); }, true],
     ['equalto mismatch', function () { return fieldValid('<input name="Email" value="a@b.com"><input name="ConfirmEmail" data-val="true" data-val-equalto="c" data-val-equalto-other="Email" value="x@y.com">', 'ConfirmEmail'); }, false],
+    ['regexwithoptions i-flag, ABC ok', function () { return fieldValid('<input name="X" data-val="true" data-val-regexwithoptions="x" data-val-regexwithoptions-pattern="[a-z]+" data-val-regexwithoptions-flags="i" value="ABC">', 'X'); }, true],
+    ['regexwithoptions i-flag, ABC123 fails full-match', function () { return fieldValid('<input name="X" data-val="true" data-val-regexwithoptions="x" data-val-regexwithoptions-pattern="[a-z]+" data-val-regexwithoptions-flags="i" value="ABC123">', 'X'); }, false],
+    ['regexwithoptions no flag, digits ok', function () { return fieldValid('<input name="X" data-val="true" data-val-regexwithoptions="x" data-val-regexwithoptions-pattern="[0-9]{3}" value="123">', 'X'); }, true],
     ['required+length empty -> required msg', function () { var f = formFrom('<input name="X" data-val="true" data-val-required="r" data-val-length="l" data-val-length-max="5">'); var r = basejsvalidate.validateField(f.querySelector('[name="X"]'), f); document.body.removeChild(f); return r.rule; }, 'required']
 ];
 function eaField(specs) {

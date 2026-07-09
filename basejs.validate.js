@@ -271,6 +271,7 @@ window.basejsvalidate = (function () {
         max: function (value, p) { return parseFloat(value) <= num(p.max); },
         number: function (value) { return NUMBER_RE.test(value); },
         regex: function (value, p) { var m = new RegExp(p.pattern).exec(value); return !!m && m.index === 0 && m[0].length === value.length; },
+        regexwithoptions: function (value, p) { var m = new RegExp(p.pattern, p.flags).exec(value); return !!m && m.index === 0 && m[0].length === value.length; },
         email: function (value) { return EMAIL_RE.test(value); },
         phone: function (value) { return PHONE_RE.test(value); },
         equalto: function (value, p, element, scope) {
@@ -279,7 +280,7 @@ window.basejsvalidate = (function () {
         }
     };
     // order determines which message wins when several rules fail at once
-    var RULE_ORDER = ['required', 'length', 'minlength', 'maxlength', 'range', 'min', 'max', 'number', 'regex', 'email', 'phone', 'equalto'];
+    var RULE_ORDER = ['required', 'length', 'minlength', 'maxlength', 'range', 'min', 'max', 'number', 'regex', 'regexwithoptions', 'email', 'phone', 'equalto'];
 
     // parse an element's data-val-* attributes into { ruleName: { message, ...params } }
     function readRules(element) {
