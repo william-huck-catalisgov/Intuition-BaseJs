@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>basejs.validate — test harness</title>
+<style>
+  body { font: 14px/1.5 system-ui, sans-serif; margin: 24px; background: #12161f; color: #e8ecf3; }
+  h1 { font-size: 18px; } h2 { font-size: 15px; margin-top: 28px; color: #d2ab6e; }
+  .summary { font-size: 16px; padding: 10px 14px; border-radius: 8px; display: inline-block; margin: 8px 0 4px; }
+  .ok { background: #1c2e26; color: #6bc38c; } .bad { background: #3a1f22; color: #f08a8a; }
+  table { border-collapse: collapse; width: 100%; margin-top: 8px; }
+  td, th { text-align: left; padding: 5px 8px; border-bottom: 1px solid #2c3548; vertical-align: top; font-size: 12.5px; }
+  th { color: #7f8aa0; font-weight: 600; }
+  code { font-family: "Cascadia Code", Consolas, monospace; color: #cdd6e6; white-space: pre-wrap; }
+  .pass { color: #6bc38c; font-weight: 700; } .fail { color: #f08a8a; font-weight: 700; }
+  .got { color: #d7ac5f; }
+</style>
+</head>
+<body>
+<h1>basejs.validate — WS3.1 eval-free EA evaluator</h1>
+<p>Loads the real <code>basejs.validate.js</code> and runs it against the EA grammar + real GlobalCAP expressions. No <code>eval</code>. Green summary = parity for these cases.</p>
+<div id="summary"></div>
+<div id="results"></div>
+
+<script src="basejs.validate.js"></script>
+<script>
+var EV = window.basejsvalidate.evaluate;
+var TESTS = [
+    ['1 + 2 * 3', {}, 7],
+    ['(1 + 2) * 3', {}, 9],
+    ['10 % 3', {}, 1],
+    ['!false', {}, true],
+    ['-5 + 3', {}, -2],
+    ['true && false', {}, false],
+    ['true || false', {}, true],
+    ['1 < 2 && 2 <= 2', {}, true],
+    ['3 > 4 || 4 >= 4', {}, true],
+    ["'a' + 'b'", {}, 'ab'],
+    ['AcceptTerms == true', { AcceptTerms: true }, true],
+    ['AcceptTerms==true', { AcceptTerms: false }, false],
+    ["PaymentTypeSelected == 'CARD'", { PaymentTypeSelected: 'CARD' }, true],
+    ['AccountNumber == ConfirmAccountNumber', { AccountNumber: '123', ConfirmAccountNumber: '123' }, true],
+    ['AccountNumber == ConfirmAccountNumber', { AccountNumber: '123', ConfirmAccountNumber: '124' }, false],
+    ['AcademicYear > 0', { AcademicYear: 2025 }, true],
+    ['AcademicYear > 0', { AcademicYear: 0 }, false],
+    ['X == null', { X: null }, true],
+    ['X != null', { X: 'v' }, true],
+    ['cond ? 1 : 2', { cond: true }, 1],
+    ['cond ? 1 : 2', { cond: false }, 2],
+    ['IsNullOrWhiteSpace(S)', { S: '   ' }, true],
+    ['IsNullOrWhiteSpace(S)', { S: 'x' }, false],
+    ['IsNullOrWhiteSpace(S)', { S: null }, true],
+    ['Length(Trim(S)) > 0', { S: '  abc  ' }, true],
+    ['Length(Trim(S)) > 0', { S: '   ' }, false],
+    ['IsDigitChain(S)', { S: '12345' }, true],
+    ['IsDigitChain(S)', { S: '12a45' }, false],
+    ['Contains(S, "ell")', { S: 'hello' }, true],
+    ['StartsWith(S, "he")', { S: 'hello' }, true],
+    ['Min(1, 2, 3)', {}, 1],
+    ['Max([4, 9, 2])', {}, 9],
+    ['Sum([1, 2, 3.5])', {}, 6.5],
+    ["(PaymentTypeSelected != 'CARD') || (PaymentTypeSelected == 'CARD' && AgreeExternalPayment == true)", { PaymentTypeSelected: 'CARD', AgreeExternalPayment: true }, true],
+    ["(PaymentTypeSelected != 'CARD') || (PaymentTypeSelected == 'CARD' && AgreeExternalPayment == true)", { PaymentTypeSelected: 'CARD', AgreeExternalPayment: false }, false],
+    ["(PaymentTypeSelected != 'CARD') || (PaymentTypeSelected == 'CARD' && AgreeExternalPayment == true)", { PaymentTypeSelected: 'PAYPAL', AgreeExternalPayment: false }, true],
+    ['(HasPrepaidPlans == true && AcceptTermsPrepaid == true) || HasPrepaidPlans != true', { HasPrepaidPlans: true, AcceptTermsPrepaid: true }, true],
+    ['(HasPrepaidPlans == true && AcceptTermsPrepaid == true) || HasPrepaidPlans != true', { HasPrepaidPlans: true, AcceptTermsPrepaid: false }, false],
+    ['(HasPrepaidPlans == true && AcceptTermsPrepaid == true) || HasPrepaidPlans != true', { HasPrepaidPlans: false, AcceptTermsPrepaid: false }, true],
+    ['AddManualSchool == false && Length(Trim(SchoolId)) > 0', { AddManualSchool: false, SchoolId: ' 42 ' }, true],
+    ['AddManualSchool == true && IsNullOrWhiteSpace(SchoolCity)', { AddManualSchool: true, SchoolCity: '' }, true],
+    ['(IsPrepaidAndSavingsClient && IsEligibleForSavings && IsEligibleForPrepaid ? (TotalHours > 0 || Savings == true) : true)', { IsPrepaidAndSavingsClient: true, IsEligibleForSavings: true, IsEligibleForPrepaid: true, TotalHours: 0, Savings: true }, true],
+    ['(IsPrepaidAndSavingsClient && IsEligibleForSavings && IsEligibleForPrepaid ? (TotalHours > 0 || Savings == true) : true)', { IsPrepaidAndSavingsClient: false, IsEligibleForSavings: false, IsEligibleForPrepaid: false, TotalHours: 0, Savings: false }, true],
+    ['(WithdrawalPercentage <= 100 && CurrentValue > 0) || (WithdrawalPercentage == 0 && CurrentValue == 0)', { WithdrawalPercentage: 50, CurrentValue: 1000 }, true],
+    ['!(IsNullOrWhiteSpace(PermanentTransfer)) && IsNullOrWhiteSpace(AcademicTerm)', { PermanentTransfer: 'Y', AcademicTerm: '' }, true]
+];
+(function run() {
+    var pass = 0, rows = '';
+    for (var i = 0; i < TESTS.length; i++) {
+        var expr = TESTS[i][0], model = TESTS[i][1], expected = TESTS[i][2], got, ok, err = '';
+        try { got = EV(expr, model); ok = (got === expected); }
+        catch (e) { got = '(threw)'; ok = false; err = ' — ' + e; }
+        if (ok) { pass++; }
+        rows += '<tr><td class="' + (ok ? 'pass' : 'fail') + '">' + (ok ? 'PASS' : 'FAIL') + '</td>' +
+            '<td><code>' + expr.replace(/</g, '&lt;') + '</code></td>' +
+            '<td class="got">' + JSON.stringify(got) + err + '</td><td>' + JSON.stringify(expected) + '</td></tr>';
+    }
+    var all = pass === TESTS.length;
+    document.getElementById('summary').innerHTML = '<div class="summary ' + (all ? 'ok' : 'bad') + '">' + pass + ' / ' + TESTS.length + ' passed' + (all ? '  ✓' : '  — FAILURES BELOW') + '</div>';
+    document.getElementById('results').innerHTML = '<h2>Cases</h2><table><tr><th>Result</th><th>Expression</th><th>Got</th><th>Expected</th></tr>' + rows + '</table>';
+})();
+</script>
+</body>
+</html>
