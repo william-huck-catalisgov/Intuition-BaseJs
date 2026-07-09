@@ -3,10 +3,14 @@
 
         // happens when a modal is shown.  used to post to server and pull back a partial view
         onShowModal = function (event) {
-            var veventSource = basejs.eventSource(event), vbutton = event.relatedTarget, vdataUrl = basejs.getDataFromTag(vbutton, 'posturl'), vformData = null;
+            // Document-delegated (see initModals): the modal element is event.target, not
+            // eventSource(event) which would be `document` under delegation.
+            var veventSource = event.target, vbutton = event.relatedTarget, vdataUrl = (vbutton ? basejs.getDataFromTag(vbutton, 'posturl') : null), vformData = null;
             if (basejs.exists(vdataUrl)) {
                 // we only want to use this if the posturl is present.  This allows bootstrap to be used normally as well.
                 setLoadingModal(veventSource);
+                // Mark so onHideModal only resets modals WE populated (not static modals).
+                if (veventSource && veventSource.dataset) { veventSource.dataset.basejsDynamic = '1'; }
                 vformData = basejs.createFormData();
                 // get data-basejs- objects from element
                 var vdataset = [].filter.call(vbutton.attributes, function (at) { return /^data-basejs-param-/.test(at.name); });
@@ -49,8 +53,19 @@
 
         // happens when a modal is hidden
         onHideModal = function (event) {
-            var veventSource = basejs.eventSource(event);
-            setLoadingModal(veventSource);
+            // Only reset modals that WE populated via onShowModal (data-basejs-dynamic),
+            // so static modals keep their content across open/close.
+            var veventSource = event.target;
+            if (veventSource && veventSource.dataset && veventSource.dataset.basejsDynamic) {
+                setLoadingModal(veventSource);
+                // Dispose the BS5 instance so the next open reconstructs against the fresh
+                // .modal-dialog. BS5 caches this._dialog at construction; our innerHTML swaps
+                // would otherwise leave it pointing at a detached node on reopen.
+                if (window.bootstrap && window.bootstrap.Modal) {
+                    var vinst = window.bootstrap.Modal.getInstance(veventSource);
+                    if (vinst) { vinst.dispose(); }
+                }
+            }
         },
 
         // modal to use when loading a modal
@@ -189,11 +204,11 @@
             }
         },
         initModals = function () {
-            var vsharedModals = document.getElementsByClassName('modal');
-            for (let i = 0; i < vsharedModals.length; i++) {
-                vsharedModals[i].addEventListener('shown.bs.modal', onShowModal);
-                vsharedModals[i].addEventListener('hidden.bs.modal', onHideModal);
-            };
+            // Document-level delegation (BS5 modal events bubble). Robust to modals added
+            // to the DOM after init (e.g. #sharedmodals, which sharedmodals.js appends at
+            // ready) — per-element binding at init time would miss those.
+            document.addEventListener('shown.bs.modal', onShowModal);
+            document.addEventListener('hidden.bs.modal', onHideModal);
         },
 
         // Programmatically open a Bootstrap 5 modal by id or element. Thin wrapper

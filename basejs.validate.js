@@ -558,8 +558,12 @@ window.basejsvalidate = (function () {
         $.validator.unobtrusive.adapters = $.validator.unobtrusive.adapters || { add: function () { }, addBool: function () { }, addSingleVal: function () { }, addMinMax: function () { } };
         // parse(container): (re)attach validation to dynamically-added content
         $.validator.unobtrusive.parse = function (container) {
-            var c = (container && container.jquery) ? container[0] : container;
-            if (!c) { bv.attachAll(document); return; }
+            var c = container;
+            // Unwrap jQuery objects, able-core W wrappers, NodeLists and arrays to a DOM
+            // node. (Callers like gifting.addevent pass able.getObject(...) = a W wrapper,
+            // which has no getElementsByTagName; attachAll needs a real element/document.)
+            if (c && !c.nodeType && typeof c.length === 'number') { c = c[0]; }
+            if (!c || !c.nodeType) { bv.attachAll(document); return; }
             if (c.tagName === 'FORM') { bv.attachForm(c); }
             bv.attachAll(c);
         };

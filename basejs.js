@@ -271,7 +271,7 @@
             for (var i = 0; i < velements.length; i++) {
                 if (velements[i].innerHTML !== "") {
                     var e = document.getElementsByName(velements[i].dataset.valmsgFor);
-                    if (exists(e) && isNodeList(e)) {
+                    if (exists(e) && isNodeList(e) && e.length > 0) {
                         e[0].classList.add('is-invalid');
                     }
                 }
@@ -950,8 +950,8 @@
         // Route activation of a [data-basejs-posturl] element:
         //   WITH data-basejs-updatetarget -> in-place AJAX replace (postAndReplace)
         //   WITHOUT one                    -> navigate via a full-page POST (submitModel)
-        // The navigate case restores the PostLink "go to a page" behaviour (a role=button
-        // element posting to a URL whose action returns a full View, not a partial).
+        // The navigate case matches the old PostLink "go to a page" behaviour (e.g. an
+        // account-number span posting to /YourPlans/PlanDetails, which returns a full View).
         handleDelegatedPost = function (el) {
             if (exists(getDataFromTag(el, 'updatetarget'))) {
                 // synthetic event so eventSource(ev) inside postAndReplace finds the element via currentTarget
@@ -968,6 +968,10 @@
             document.addEventListener('click', function (ev) {
                 var el = ev.target.closest('[data-basejs-posturl]');
                 if (!el || el.tagName === 'FORM') return;  // forms handled by initForms via submit
+                // Modal-trigger buttons (PostButtonModal: data-bs-toggle="modal") are owned by
+                // BS5's data-api + basejs.modals.onShowModal (which reads data-basejs-posturl on
+                // 'shown.bs.modal' and AJAX-loads the partial). Skip so we don't ALSO navigate.
+                if (el.getAttribute('data-bs-toggle') === 'modal') return;
                 ev.preventDefault();
                 handleDelegatedPost(el);
             });
@@ -977,6 +981,7 @@
                 if (ev.key !== 'Enter' && ev.key !== ' ' && ev.key !== 'Spacebar') return;
                 var el = ev.target.closest('[data-basejs-posturl]');
                 if (!el || el.tagName === 'FORM') return;
+                if (el.getAttribute('data-bs-toggle') === 'modal') return;  // owned by BS5 + basejs.modals
                 var tag = el.tagName.toLowerCase();
                 if (tag === 'button' || tag === 'a' || tag === 'input') return;
                 ev.preventDefault();  // Space would otherwise scroll the page
@@ -990,11 +995,10 @@
         },
         executeDeferredFunctions = function () {
             var a = window.deferredFunctions, x = 0, l = (isArray(a) ? a.length : 0);
-            // Run-once across ALL executors on the page. A host page may have a legacy
-            // executor that also drains window.deferredFunctions (e.g. intuition.js during
-            // the GlobalCAP BS5 migration); without this guard the deferred setup binds
-            // twice and can swallow the first form submit. Flag is shared on the array so
-            // execution order does not matter.
+            // Run-once across ALL executors on the page. During the migration the legacy
+            // intuition.js also drains window.deferredFunctions; without this guard the
+            // deferred setup (e.g. the double-submit guard) binds twice and swallows the
+            // first form submit. Flag is shared on the array so order does not matter.
             if (isArray(a)) {
                 if (a.executed) { return; }
                 a.executed = true;
