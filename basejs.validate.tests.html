@@ -254,13 +254,20 @@ var basejsvalidate = (function () {
     function jsonParam(v) { if (v === undefined || v === null) { return undefined; } try { return JSON.parse(v); } catch (e) { return v; } }
     function evalEARule(kind, params, element, scope, fieldValue) {
         var expression = jsonParam(params.expression);
-        var model = buildEAModel(scope, getPrefix(element.name || ''), jsonParam(params.fieldsmap) || {}, jsonParam(params.constsmap) || {}, jsonParam(params.enumsmap) || {});
-        var v = ((element.type || '').toLowerCase() === 'checkbox') ? element.checked : fieldValue;
-        if (kind === 'assertthat') { if (v !== undefined && v !== null && v !== '') { return { valid: !!evalExpr(expression, model) }; } return { valid: true }; }
-        var allowEmpty = jsonParam(params.allowempty) === true;
-        var empty = (v === undefined || v === null || v === '' || (typeof v === 'string' && !/\S/.test(v) && !allowEmpty));
-        if (empty) { return { valid: !evalExpr(expression, model) }; }
-        return { valid: true };
+        try {
+            var model = buildEAModel(scope, getPrefix(element.name || ''), jsonParam(params.fieldsmap) || {}, jsonParam(params.constsmap) || {}, jsonParam(params.enumsmap) || {});
+            var v = ((element.type || '').toLowerCase() === 'checkbox') ? element.checked : fieldValue;
+            if (kind === 'assertthat') { if (v !== undefined && v !== null && v !== '') { return { valid: !!evalExpr(expression, model) }; } return { valid: true }; }
+            var allowEmpty = jsonParam(params.allowempty) === true;
+            var empty = (v === undefined || v === null || v === '' || (typeof v === 'string' && !/\S/.test(v) && !allowEmpty));
+            if (empty) { return { valid: !evalExpr(expression, model) }; }
+            return { valid: true };
+        } catch (e) {
+            // EA parity: custom server methods (IsInSchoolList, IsValidPassword, ...) aren't
+            // registered client-side; EA caught the throw and let the field pass (server enforces).
+            if (window.console && console.warn) { console.warn('basejs.validate: expression not evaluated client-side (deferred to server): ' + expression); }
+            return { valid: true };
+        }
     }
     function validateField(element, scope) {
         scope = scope || element.form || document;
@@ -406,7 +413,9 @@ var EA = [
     ['requiredif: empty + condition false -> optional (valid)', function () { return eaValid([{ name: 'PermanentTransfer', value: '' }, { name: 'AcademicTerm', attrs: { 'data-val': 'true', 'data-val-requiredif': 'm', 'data-val-requiredif-expression': JSON.stringify(RIF_EXPR), 'data-val-requiredif-fieldsmap': JSON.stringify(RIF_MAP) } }], 'AcademicTerm'); }, true],
     ['requiredif: has value -> valid', function () { return eaValid([{ name: 'PermanentTransfer', value: 'Y' }, { name: 'AcademicTerm', value: 'Fall', attrs: { 'data-val': 'true', 'data-val-requiredif': 'm', 'data-val-requiredif-expression': JSON.stringify(RIF_EXPR), 'data-val-requiredif-fieldsmap': JSON.stringify(RIF_MAP) } }], 'AcademicTerm'); }, true],
     ['assertthat cross-field: CARD + not agreed -> invalid', function () { return eaValid([{ name: 'PaymentTypeSelected', value: 'CARD' }, { type: 'checkbox', name: 'AgreeExternalPayment', attrs: { 'data-val': 'true', 'data-val-assertthat': 'm', 'data-val-assertthat-expression': JSON.stringify(CARD_EXPR), 'data-val-assertthat-fieldsmap': JSON.stringify(CARD_MAP) } }], 'AgreeExternalPayment'); }, false],
-    ['assertthat cross-field: CARD + agreed -> valid', function () { return eaValid([{ name: 'PaymentTypeSelected', value: 'CARD' }, { type: 'checkbox', name: 'AgreeExternalPayment', checked: true, attrs: { 'data-val': 'true', 'data-val-assertthat': 'm', 'data-val-assertthat-expression': JSON.stringify(CARD_EXPR), 'data-val-assertthat-fieldsmap': JSON.stringify(CARD_MAP) } }], 'AgreeExternalPayment'); }, true]
+    ['assertthat cross-field: CARD + agreed -> valid', function () { return eaValid([{ name: 'PaymentTypeSelected', value: 'CARD' }, { type: 'checkbox', name: 'AgreeExternalPayment', checked: true, attrs: { 'data-val': 'true', 'data-val-assertthat': 'm', 'data-val-assertthat-expression': JSON.stringify(CARD_EXPR), 'data-val-assertthat-fieldsmap': JSON.stringify(CARD_MAP) } }], 'AgreeExternalPayment'); }, true],
+    ['assertthat w/ unregistered custom method -> passes (deferred to server)', function () { return eaValid([{ name: 'SchoolId', value: '123' }, { name: 'X', value: 'v', attrs: { 'data-val': 'true', 'data-val-assertthat': 'm', 'data-val-assertthat-expression': JSON.stringify('IsInSchoolList(SchoolId)'), 'data-val-assertthat-fieldsmap': JSON.stringify({ SchoolId: 'string' }) } }], 'X'); }, true],
+    ['requiredif w/ unregistered custom method -> passes (deferred to server)', function () { return eaValid([{ name: 'Amt', value: '' }, { name: 'X', attrs: { 'data-val': 'true', 'data-val-requiredif': 'm', 'data-val-requiredif-expression': JSON.stringify('IsTotalContributionAmountInLimits(Amt)'), 'data-val-requiredif-fieldsmap': JSON.stringify({ Amt: 'string' }) } }], 'X'); }, true]
 ];
 var RENDER = [
     ['validate: empty required marks field + span text', function () {

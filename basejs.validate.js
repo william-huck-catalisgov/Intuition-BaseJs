@@ -359,16 +359,26 @@ window.basejsvalidate = (function () {
     // condition evaluates true. optimize=on (default) => condition computed lazily.
     function evalEARule(kind, params, element, scope, fieldValue) {
         var expression = jsonParam(params.expression);
-        var model = buildEAModel(scope, getPrefix(element.name || ''), jsonParam(params.fieldsmap) || {}, jsonParam(params.constsmap) || {}, jsonParam(params.enumsmap) || {});
-        var v = ((element.type || '').toLowerCase() === 'checkbox') ? element.checked : fieldValue; // EA adjustGivenValue
-        if (kind === 'assertthat') {
-            if (v !== undefined && v !== null && v !== '') { return { valid: !!evalExpr(expression, model) }; }
+        try {
+            var model = buildEAModel(scope, getPrefix(element.name || ''), jsonParam(params.fieldsmap) || {}, jsonParam(params.constsmap) || {}, jsonParam(params.enumsmap) || {});
+            var v = ((element.type || '').toLowerCase() === 'checkbox') ? element.checked : fieldValue; // EA adjustGivenValue
+            if (kind === 'assertthat') {
+                if (v !== undefined && v !== null && v !== '') { return { valid: !!evalExpr(expression, model) }; }
+                return { valid: true };
+            }
+            var allowEmpty = jsonParam(params.allowempty) === true;
+            var empty = (v === undefined || v === null || v === '' || (typeof v === 'string' && !/\S/.test(v) && !allowEmpty));
+            if (empty) { return { valid: !evalExpr(expression, model) }; }
+            return { valid: true };
+        } catch (e) {
+            // EA parity: many GlobalCAP expressions call custom server methods
+            // (IsInSchoolList, IsValidPassword, IsTotalContributionAmountInLimits, ...)
+            // that aren't registered client-side. EA's client wrapped eval in try/catch
+            // and let such fields PASS client-side, deferring to server enforcement.
+            // Do the same — never block or crash the form on an un-evaluable expression.
+            if (window.console && console.warn) { console.warn('basejs.validate: expression not evaluated client-side (deferred to server): ' + expression); }
             return { valid: true };
         }
-        var allowEmpty = jsonParam(params.allowempty) === true;
-        var empty = (v === undefined || v === null || v === '' || (typeof v === 'string' && !/\S/.test(v) && !allowEmpty));
-        if (empty) { return { valid: !evalExpr(expression, model) }; }
-        return { valid: true };
     }
 
     // validate a single element; returns { valid, rule?, message? }.
