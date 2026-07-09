@@ -408,6 +408,77 @@ window.basejsvalidate = (function () {
         return { valid: allValid, results: results };
     }
 
+    /* ======================================================================
+     * WS3.5: error display, summary, and triggers
+     * is-invalid + aria-invalid on the control (BS5-correct; the old BS4
+     * .form-group highlight is moot post-WS4 which renamed form-group->mb-3).
+     * Message goes into the MVC ValidationMessageFor span ([data-valmsg-for]);
+     * we also tag it invalid-feedback/d-block so BS5 shows it (final display
+     * styling confirmed at WS6). Summary uses the MVC [data-valmsg-summary] span.
+     * ==================================================================== */
+    function messageSpan(scope, name) { return name ? (scope || document).querySelector('[data-valmsg-for="' + name.replace(/"/g, '\\"') + '"]') : null; }
+    function showFieldError(element, message, scope) {
+        element.classList.add('is-invalid'); element.setAttribute('aria-invalid', 'true');
+        var span = messageSpan(scope || element.form, element.name);
+        if (span) {
+            span.classList.remove('field-validation-valid'); span.classList.add('field-validation-error', 'invalid-feedback', 'd-block');
+            if (span.getAttribute('data-valmsg-replace') !== 'false') { span.textContent = message || ''; }
+        }
+    }
+    function clearFieldError(element, scope) {
+        element.classList.remove('is-invalid'); element.setAttribute('aria-invalid', 'false');
+        var span = messageSpan(scope || element.form, element.name);
+        if (span) {
+            span.classList.remove('field-validation-error', 'd-block'); span.classList.add('field-validation-valid');
+            if (span.getAttribute('data-valmsg-replace') !== 'false') { span.textContent = ''; }
+        }
+    }
+    function updateSummary(form, messages) {
+        var summary = form.querySelector('[data-valmsg-summary="true"]') || form.querySelector('.validation-summary-valid, .validation-summary-errors');
+        if (!summary) { return; }
+        var ul = summary.querySelector('ul'), i, li;
+        if (messages && messages.length) {
+            summary.classList.remove('validation-summary-valid'); summary.classList.add('validation-summary-errors', 'alert', 'alert-danger');
+            if (ul) { ul.innerHTML = ''; for (i = 0; i < messages.length; i++) { li = document.createElement('li'); li.textContent = messages[i]; ul.appendChild(li); } }
+        } else {
+            summary.classList.remove('validation-summary-errors', 'alert', 'alert-danger'); summary.classList.add('validation-summary-valid');
+            if (ul) { ul.innerHTML = '<li style="display:none"></li>'; }
+        }
+    }
+    // validate a form and render every field + the summary. Returns { valid, results }.
+    function validateAndRender(form) {
+        var res = validateContainer(form), i, r, msgs = [];
+        for (i = 0; i < res.results.length; i++) {
+            r = res.results[i];
+            if (r.valid) { clearFieldError(r.element, form); }
+            else { showFieldError(r.element, r.message, form); if (r.message) { msgs.push(r.message); } }
+        }
+        updateSummary(form, msgs);
+        return res;
+    }
+    function focusFirstInvalid(res) {
+        for (var i = 0; i < res.results.length; i++) { if (!res.results[i].valid && res.results[i].element && res.results[i].element.focus) { try { res.results[i].element.focus(); } catch (e) { } return; } }
+    }
+    // wire submit + per-field triggers on a form (idempotent). On invalid submit:
+    // block, focus first invalid, and dispatch 'basejs-invalid-form' (the hook the
+    // app's submit-button disable/re-enable logic listens to instead of jquery
+    // validate's 'invalid-form.validate').
+    function attachForm(form) {
+        if (!form || form.dataset.basejsValidateBound) { return; }
+        form.dataset.basejsValidateBound = '1';
+        form.addEventListener('submit', function (e) {
+            var res = validateAndRender(form);
+            if (!res.valid) { e.preventDefault(); focusFirstInvalid(res); form.dispatchEvent(new CustomEvent('basejs-invalid-form', { bubbles: true, detail: res })); }
+        });
+        var fields = Array.prototype.slice.call(form.querySelectorAll('[data-val="true"]'));
+        fields.forEach(function (el) {
+            var run = function () { var r = validateField(el, form); if (r.valid) { clearFieldError(el, form); } else { showFieldError(el, r.message, form); } };
+            el.addEventListener('blur', run);
+            el.addEventListener('input', function () { if (el.classList.contains('is-invalid')) { run(); } }); // clear as the user fixes it
+        });
+    }
+    function attachAll(scope) { var forms = (scope || document).getElementsByTagName('form'), i; for (i = 0; i < forms.length; i++) { attachForm(forms[i]); } }
+
     return {
         // WS3.1 — expression evaluator
         evaluate: function (expression, model) { return evalNode(parse(tokenize(expression)), buildContext(model || {})); },
@@ -418,7 +489,14 @@ window.basejsvalidate = (function () {
         validateContainer: validateContainer, // (container?) -> { valid, results:[...] }
         readRules: readRules,                 // (element) -> { rule: { message, ...params } }
         getValue: getValue,                   // (element, scope?) -> string
-        rules: RULES,                         // rule-name -> validator fn (extensible; WS3.3 adds EA rules)
+        rules: RULES,                         // rule-name -> validator fn (extensible)
+        // WS3.5 — error display + triggers
+        validate: validateAndRender,          // (form) -> { valid, results }; renders field + summary errors
+        showFieldError: showFieldError,       // (element, message, scope?)
+        clearFieldError: clearFieldError,     // (element, scope?)
+        updateSummary: updateSummary,         // (form, messages[])
+        attachForm: attachForm,               // (form) wire submit + per-field triggers (idempotent)
+        attachAll: attachAll,                 // (scope?) attach every form
         // exposed for the test harness / later steps:
         tokenize: tokenize,
         parse: parse

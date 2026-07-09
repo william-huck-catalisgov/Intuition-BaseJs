@@ -281,10 +281,44 @@ var basejsvalidate = (function () {
         }
         return { valid: allValid, results: results };
     }
+    function messageSpan(scope, name) { return name ? (scope || document).querySelector('[data-valmsg-for="' + name.replace(/"/g, '\\"') + '"]') : null; }
+    function showFieldError(element, message, scope) {
+        element.classList.add('is-invalid'); element.setAttribute('aria-invalid', 'true');
+        var span = messageSpan(scope || element.form, element.name);
+        if (span) { span.classList.remove('field-validation-valid'); span.classList.add('field-validation-error', 'invalid-feedback', 'd-block'); if (span.getAttribute('data-valmsg-replace') !== 'false') { span.textContent = message || ''; } }
+    }
+    function clearFieldError(element, scope) {
+        element.classList.remove('is-invalid'); element.setAttribute('aria-invalid', 'false');
+        var span = messageSpan(scope || element.form, element.name);
+        if (span) { span.classList.remove('field-validation-error', 'd-block'); span.classList.add('field-validation-valid'); if (span.getAttribute('data-valmsg-replace') !== 'false') { span.textContent = ''; } }
+    }
+    function updateSummary(form, messages) {
+        var summary = form.querySelector('[data-valmsg-summary="true"]') || form.querySelector('.validation-summary-valid, .validation-summary-errors');
+        if (!summary) { return; }
+        var ul = summary.querySelector('ul'), i, li;
+        if (messages && messages.length) { summary.classList.remove('validation-summary-valid'); summary.classList.add('validation-summary-errors', 'alert', 'alert-danger'); if (ul) { ul.innerHTML = ''; for (i = 0; i < messages.length; i++) { li = document.createElement('li'); li.textContent = messages[i]; ul.appendChild(li); } } }
+        else { summary.classList.remove('validation-summary-errors', 'alert', 'alert-danger'); summary.classList.add('validation-summary-valid'); if (ul) { ul.innerHTML = '<li style="display:none"></li>'; } }
+    }
+    function validateAndRender(form) {
+        var res = validateContainer(form), i, r, msgs = [];
+        for (i = 0; i < res.results.length; i++) { r = res.results[i]; if (r.valid) { clearFieldError(r.element, form); } else { showFieldError(r.element, r.message, form); if (r.message) { msgs.push(r.message); } } }
+        updateSummary(form, msgs); return res;
+    }
+    function focusFirstInvalid(res) { for (var i = 0; i < res.results.length; i++) { if (!res.results[i].valid && res.results[i].element && res.results[i].element.focus) { try { res.results[i].element.focus(); } catch (e) { } return; } } }
+    function attachForm(form) {
+        if (!form || form.dataset.basejsValidateBound) { return; } form.dataset.basejsValidateBound = '1';
+        form.addEventListener('submit', function (e) { var res = validateAndRender(form); if (!res.valid) { e.preventDefault(); focusFirstInvalid(res); form.dispatchEvent(new CustomEvent('basejs-invalid-form', { bubbles: true, detail: res })); } });
+        Array.prototype.slice.call(form.querySelectorAll('[data-val="true"]')).forEach(function (el) {
+            var run = function () { var r = validateField(el, form); if (r.valid) { clearFieldError(el, form); } else { showFieldError(el, r.message, form); } };
+            el.addEventListener('blur', run); el.addEventListener('input', function () { if (el.classList.contains('is-invalid')) { run(); } });
+        });
+    }
+    function attachAll(scope) { var forms = (scope || document).getElementsByTagName('form'), i; for (i = 0; i < forms.length; i++) { attachForm(forms[i]); } }
     return {
         evaluate: function (expression, model) { return evalNode(parse(tokenize(expression)), buildContext(model || {})); },
         addMethod: function (name, func) { addMethod(name, func); }, methods: methods,
         validateField: validateField, validateContainer: validateContainer, readRules: readRules, getValue: getValue, rules: RULES,
+        validate: validateAndRender, showFieldError: showFieldError, clearFieldError: clearFieldError, updateSummary: updateSummary, attachForm: attachForm, attachAll: attachAll,
         tokenize: tokenize, parse: parse
     };
 })();
@@ -367,6 +401,37 @@ var EA = [
     ['assertthat cross-field: CARD + not agreed -> invalid', function () { return eaValid([{ name: 'PaymentTypeSelected', value: 'CARD' }, { type: 'checkbox', name: 'AgreeExternalPayment', attrs: { 'data-val': 'true', 'data-val-assertthat': 'm', 'data-val-assertthat-expression': JSON.stringify(CARD_EXPR), 'data-val-assertthat-fieldsmap': JSON.stringify(CARD_MAP) } }], 'AgreeExternalPayment'); }, false],
     ['assertthat cross-field: CARD + agreed -> valid', function () { return eaValid([{ name: 'PaymentTypeSelected', value: 'CARD' }, { type: 'checkbox', name: 'AgreeExternalPayment', checked: true, attrs: { 'data-val': 'true', 'data-val-assertthat': 'm', 'data-val-assertthat-expression': JSON.stringify(CARD_EXPR), 'data-val-assertthat-fieldsmap': JSON.stringify(CARD_MAP) } }], 'AgreeExternalPayment'); }, true]
 ];
+var RENDER = [
+    ['validate: empty required marks field + span text', function () {
+        var f = formFrom('<input name="X" data-val="true" data-val-required="X is required"><span data-valmsg-for="X" data-valmsg-replace="true" class="field-validation-valid"></span>');
+        basejsvalidate.validate(f); var el = f.querySelector('[name="X"]'), sp = f.querySelector('[data-valmsg-for="X"]');
+        var ok = el.classList.contains('is-invalid') && el.getAttribute('aria-invalid') === 'true' && sp.textContent === 'X is required' && sp.classList.contains('field-validation-error');
+        document.body.removeChild(f); return ok;
+    }, true],
+    ['validate: filled required clears field + span', function () {
+        var f = formFrom('<input name="X" data-val="true" data-val-required="req" value="hi"><span data-valmsg-for="X" data-valmsg-replace="true" class="field-validation-valid"></span>');
+        basejsvalidate.validate(f); var el = f.querySelector('[name="X"]'), sp = f.querySelector('[data-valmsg-for="X"]');
+        var ok = !el.classList.contains('is-invalid') && el.getAttribute('aria-invalid') === 'false' && sp.textContent === '' && sp.classList.contains('field-validation-valid');
+        document.body.removeChild(f); return ok;
+    }, true],
+    ['validate: summary populated on error', function () {
+        var f = formFrom('<input name="X" data-val="true" data-val-required="X is required"><span data-valmsg-for="X" data-valmsg-replace="true" class="field-validation-valid"></span><div data-valmsg-summary="true" class="validation-summary-valid"><ul><li style="display:none"></li></ul></div>');
+        basejsvalidate.validate(f); var sum = f.querySelector('[data-valmsg-summary="true"]');
+        var ok = sum.classList.contains('validation-summary-errors') && sum.classList.contains('alert') && sum.querySelector('ul').textContent.indexOf('X is required') > -1;
+        document.body.removeChild(f); return ok;
+    }, true],
+    ['validate: returns valid=false on error', function () { var f = formFrom('<input name="X" data-val="true" data-val-required="req">'); var r = basejsvalidate.validate(f); document.body.removeChild(f); return r.valid; }, false],
+    ['submit blocked on invalid (preventDefault)', function () {
+        var f = formFrom('<input name="X" data-val="true" data-val-required="req"><button type="submit">go</button>');
+        basejsvalidate.attachForm(f); var ev = new Event('submit', { cancelable: true, bubbles: true }); f.dispatchEvent(ev);
+        var blocked = ev.defaultPrevented; document.body.removeChild(f); return blocked;
+    }, true],
+    ['submit allowed when valid', function () {
+        var f = formFrom('<input name="X" data-val="true" data-val-required="req" value="ok"><button type="submit">go</button>');
+        basejsvalidate.attachForm(f); var ev = new Event('submit', { cancelable: true, bubbles: true }); f.dispatchEvent(ev);
+        var blocked = ev.defaultPrevented; document.body.removeChild(f); return blocked;
+    }, false]
+];
 function render() {
     var parts = [], boxes = [];
     function section(title, cases, run) {
@@ -384,6 +449,7 @@ function render() {
     section('WS3.1 evaluator', TESTS, { label: function (c) { return c[0]; }, expected: function (c) { return c[2]; }, actual: function (c) { return EV(c[0], c[1]); } });
     section('WS3.2 binder + rules', DOM, { label: function (c) { return c[0]; }, expected: function (c) { return c[2]; }, actual: function (c) { return c[1](); } });
     section('WS3.3 EA rules (requiredif/assertthat)', EA, { label: function (c) { return c[0]; }, expected: function (c) { return c[2]; }, actual: function (c) { return c[1](); } });
+    section('WS3.5 error display + triggers', RENDER, { label: function (c) { return c[0]; }, expected: function (c) { return c[2]; }, actual: function (c) { return c[1](); } });
     document.getElementById('summary').innerHTML = boxes.join('');
     document.getElementById('results').innerHTML = parts.join('');
 }
