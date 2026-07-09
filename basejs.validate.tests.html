@@ -212,15 +212,58 @@ var basejsvalidate = (function () {
         }
         return rules;
     }
+    function evalExpr(expr, model) { return evalNode(parse(tokenize(expr)), buildContext(model || {})); }
+    function isNum(v) { return typeof v === 'number' && !isNaN(v); }
+    var typeParse = {
+        string: function (v) { return v === null || v === undefined ? null : String(v); },
+        bool: function (v) { if (typeof v === 'boolean') { return v; } if (typeof v === 'string') { var s = trim(v).toLowerCase(); if (s === 'true' || s === 'false') { return s === 'true'; } } return { error: true }; },
+        number: function (v) { var n = parseFloat(v); return (isNum(n) && isFinite(v)) ? n : { error: true }; },
+        datetime: function (v) { if (v instanceof Date) { return v.getTime(); } if (typeof v === 'string') { var ms = Date.parse(v); if (isNum(ms)) { return ms; } } return { error: true }; },
+        guid: function (v) { return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v) ? String(v).toUpperCase() : { error: true }; },
+        object: function (v) { try { return JSON.parse(v); } catch (e) { return { error: true }; } }
+    };
+    function parseByType(value, type) { var f = typeParse.hasOwnProperty(type) ? typeParse[type] : typeParse.object; return f(value); }
+    function getPrefix(name) { return (name !== undefined && name !== null) ? name.substr(0, name.lastIndexOf('.') + 1) : ''; }
+    function extractModelValue(scope, fieldName, type) {
+        var els = byName(scope, fieldName); if (!els.length) { return null; }
+        var t = (els[0].type || '').toLowerCase(), raw, i;
+        if (t === 'checkbox') { raw = els[0].checked; }
+        else if (t === 'radio') { raw = ''; for (i = 0; i < els.length; i++) { if (els[i].checked) { raw = els[i].value; break; } } }
+        else { raw = els[0].value; }
+        if (raw === null || raw === undefined || raw === '') { return null; }
+        var parsed = parseByType(raw, type); return (parsed && parsed.error) ? null : parsed;
+    }
+    function buildField(fieldName, fieldValue, obj) {
+        var props = fieldName.split('.'), parent = obj, i, m, arrPat = /^([a-z_0-9]+)\[([0-9]+)\]$/i, fn;
+        for (i = 0; i < props.length - 1; i++) { fn = props[i]; m = arrPat.exec(fn); if (m) { fn = m[1]; if (!parent.hasOwnProperty(fn)) { parent[fn] = {}; } parent[fn][m[2]] = parent[fn][m[2]] || {}; parent = parent[fn][m[2]]; } else { if (!parent.hasOwnProperty(fn)) { parent[fn] = {}; } parent = parent[fn]; } }
+        fn = props[props.length - 1]; m = arrPat.exec(fn); if (m) { parent[m[1]] = parent[m[1]] || []; parent[m[1]][m[2]] = fieldValue; } else { parent[fn] = fieldValue; }
+    }
+    function buildEAModel(scope, prefix, fieldsMap, constsMap, enumsMap) {
+        var model = {}, name;
+        for (name in fieldsMap) { if (fieldsMap.hasOwnProperty(name)) { buildField(name, extractModelValue(scope, prefix + name, fieldsMap[name]), model); } }
+        for (name in constsMap) { if (constsMap.hasOwnProperty(name)) { buildField(name, constsMap[name], model); } }
+        for (name in enumsMap) { if (enumsMap.hasOwnProperty(name)) { buildField(name, enumsMap[name], model); } }
+        return model;
+    }
+    function jsonParam(v) { if (v === undefined || v === null) { return undefined; } try { return JSON.parse(v); } catch (e) { return v; } }
+    function evalEARule(kind, params, element, scope, fieldValue) {
+        var expression = jsonParam(params.expression);
+        var model = buildEAModel(scope, getPrefix(element.name || ''), jsonParam(params.fieldsmap) || {}, jsonParam(params.constsmap) || {}, jsonParam(params.enumsmap) || {});
+        var v = ((element.type || '').toLowerCase() === 'checkbox') ? element.checked : fieldValue;
+        if (kind === 'assertthat') { if (v !== undefined && v !== null && v !== '') { return { valid: !!evalExpr(expression, model) }; } return { valid: true }; }
+        var allowEmpty = jsonParam(params.allowempty) === true;
+        var empty = (v === undefined || v === null || v === '' || (typeof v === 'string' && !/\S/.test(v) && !allowEmpty));
+        if (empty) { return { valid: !evalExpr(expression, model) }; }
+        return { valid: true };
+    }
     function validateField(element, scope) {
         scope = scope || element.form || document;
-        var rules = readRules(element), value = getValue(element, scope), required = !!rules.required;
-        if (isBlank(value) && !required) { return { valid: true }; }
-        for (var i = 0; i < RULE_ORDER.length; i++) {
-            var rn = RULE_ORDER[i]; if (!rules[rn] || !RULES[rn]) { continue; }
-            if (rn !== 'required' && isBlank(value)) { continue; }
-            if (!RULES[rn](value, rules[rn], element, scope)) { return { valid: false, rule: rn, message: rules[rn].message || '' }; }
-        }
+        var rules = readRules(element), value = getValue(element, scope), key, i, rn, r;
+        for (key in rules) { if (rules.hasOwnProperty(key) && key.indexOf('requiredif') === 0) { r = evalEARule('requiredif', rules[key], element, scope, value); if (!r.valid) { return { valid: false, rule: key, message: rules[key].message || '' }; } } }
+        var blank = isBlank(value);
+        if (blank && rules.required) { return { valid: false, rule: 'required', message: rules.required.message || '' }; }
+        if (!blank) { for (i = 0; i < RULE_ORDER.length; i++) { rn = RULE_ORDER[i]; if (rn === 'required' || !rules[rn] || !RULES[rn]) { continue; } if (!RULES[rn](value, rules[rn], element, scope)) { return { valid: false, rule: rn, message: rules[rn].message || '' }; } } }
+        for (key in rules) { if (rules.hasOwnProperty(key) && key.indexOf('assertthat') === 0) { r = evalEARule('assertthat', rules[key], element, scope, value); if (!r.valid) { return { valid: false, rule: key, message: rules[key].message || '' }; } } }
         return { valid: true };
     }
     function validateContainer(container) {
@@ -302,6 +345,24 @@ var DOM = [
     ['equalto mismatch', function () { return fieldValid('<input name="Email" value="a@b.com"><input name="ConfirmEmail" data-val="true" data-val-equalto="c" data-val-equalto-other="Email" value="x@y.com">', 'ConfirmEmail'); }, false],
     ['required+length empty -> required msg', function () { var f = formFrom('<input name="X" data-val="true" data-val-required="r" data-val-length="l" data-val-length-max="5">'); var r = basejsvalidate.validateField(f.querySelector('[name="X"]'), f); document.body.removeChild(f); return r.rule; }, 'required']
 ];
+function eaField(specs) {
+    var f = document.createElement('form');
+    specs.forEach(function (s) { var el = document.createElement('input'); if (s.type) { el.type = s.type; } el.name = s.name; if (s.checked) { el.checked = true; } if (s.value !== undefined) { el.value = s.value; } var a = s.attrs || {}; for (var k in a) { el.setAttribute(k, a[k]); } f.appendChild(el); });
+    document.body.appendChild(f); return f;
+}
+function eaValid(specs, target) { var f = eaField(specs); var r = basejsvalidate.validateField(f.querySelector('[name="' + target + '"]'), f); document.body.removeChild(f); return r.valid; }
+var AT_EXPR = "AcceptTerms == true", AT_MAP = { AcceptTerms: 'bool' };
+var RIF_EXPR = "!(IsNullOrWhiteSpace(PermanentTransfer))", RIF_MAP = { PermanentTransfer: 'string' };
+var CARD_EXPR = "(PaymentTypeSelected != 'CARD') || AgreeExternalPayment == true", CARD_MAP = { PaymentTypeSelected: 'string', AgreeExternalPayment: 'bool' };
+var EA = [
+    ['assertthat: AcceptTerms checked -> valid', function () { return eaValid([{ type: 'checkbox', name: 'AcceptTerms', checked: true, attrs: { 'data-val': 'true', 'data-val-assertthat': 'm', 'data-val-assertthat-expression': JSON.stringify(AT_EXPR), 'data-val-assertthat-fieldsmap': JSON.stringify(AT_MAP) } }], 'AcceptTerms'); }, true],
+    ['assertthat: AcceptTerms unchecked -> invalid', function () { return eaValid([{ type: 'checkbox', name: 'AcceptTerms', attrs: { 'data-val': 'true', 'data-val-assertthat': 'm', 'data-val-assertthat-expression': JSON.stringify(AT_EXPR), 'data-val-assertthat-fieldsmap': JSON.stringify(AT_MAP) } }], 'AcceptTerms'); }, false],
+    ['requiredif: empty + condition true -> required (invalid)', function () { return eaValid([{ name: 'PermanentTransfer', value: 'Y' }, { name: 'AcademicTerm', attrs: { 'data-val': 'true', 'data-val-requiredif': 'm', 'data-val-requiredif-expression': JSON.stringify(RIF_EXPR), 'data-val-requiredif-fieldsmap': JSON.stringify(RIF_MAP) } }], 'AcademicTerm'); }, false],
+    ['requiredif: empty + condition false -> optional (valid)', function () { return eaValid([{ name: 'PermanentTransfer', value: '' }, { name: 'AcademicTerm', attrs: { 'data-val': 'true', 'data-val-requiredif': 'm', 'data-val-requiredif-expression': JSON.stringify(RIF_EXPR), 'data-val-requiredif-fieldsmap': JSON.stringify(RIF_MAP) } }], 'AcademicTerm'); }, true],
+    ['requiredif: has value -> valid', function () { return eaValid([{ name: 'PermanentTransfer', value: 'Y' }, { name: 'AcademicTerm', value: 'Fall', attrs: { 'data-val': 'true', 'data-val-requiredif': 'm', 'data-val-requiredif-expression': JSON.stringify(RIF_EXPR), 'data-val-requiredif-fieldsmap': JSON.stringify(RIF_MAP) } }], 'AcademicTerm'); }, true],
+    ['assertthat cross-field: CARD + not agreed -> invalid', function () { return eaValid([{ name: 'PaymentTypeSelected', value: 'CARD' }, { type: 'checkbox', name: 'AgreeExternalPayment', attrs: { 'data-val': 'true', 'data-val-assertthat': 'm', 'data-val-assertthat-expression': JSON.stringify(CARD_EXPR), 'data-val-assertthat-fieldsmap': JSON.stringify(CARD_MAP) } }], 'AgreeExternalPayment'); }, false],
+    ['assertthat cross-field: CARD + agreed -> valid', function () { return eaValid([{ name: 'PaymentTypeSelected', value: 'CARD' }, { type: 'checkbox', name: 'AgreeExternalPayment', checked: true, attrs: { 'data-val': 'true', 'data-val-assertthat': 'm', 'data-val-assertthat-expression': JSON.stringify(CARD_EXPR), 'data-val-assertthat-fieldsmap': JSON.stringify(CARD_MAP) } }], 'AgreeExternalPayment'); }, true]
+];
 function render() {
     var parts = [], boxes = [];
     function section(title, cases, run) {
@@ -318,6 +379,7 @@ function render() {
     }
     section('WS3.1 evaluator', TESTS, { label: function (c) { return c[0]; }, expected: function (c) { return c[2]; }, actual: function (c) { return EV(c[0], c[1]); } });
     section('WS3.2 binder + rules', DOM, { label: function (c) { return c[0]; }, expected: function (c) { return c[2]; }, actual: function (c) { return c[1](); } });
+    section('WS3.3 EA rules (requiredif/assertthat)', EA, { label: function (c) { return c[0]; }, expected: function (c) { return c[2]; }, actual: function (c) { return c[1](); } });
     document.getElementById('summary').innerHTML = boxes.join('');
     document.getElementById('results').innerHTML = parts.join('');
 }

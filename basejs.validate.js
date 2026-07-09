@@ -295,19 +295,98 @@ window.basejsvalidate = (function () {
         return rules;
     }
 
+    /* ---- WS3.3: EA conditional rules (requiredif / assertthat) ------------- */
+    function evalExpr(expr, model) { return evalNode(parse(tokenize(expr)), buildContext(model || {})); }
+    function isNum(v) { return typeof v === 'number' && !isNaN(v); }
+    // value parsers by declared type (ported from EA typeHelper, jQuery-free)
+    var typeParse = {
+        string: function (v) { return v === null || v === undefined ? null : String(v); },
+        bool: function (v) { if (typeof v === 'boolean') { return v; } if (typeof v === 'string') { var s = trim(v).toLowerCase(); if (s === 'true' || s === 'false') { return s === 'true'; } } return { error: true }; },
+        number: function (v) { var n = parseFloat(v); return (isNum(n) && isFinite(v)) ? n : { error: true }; },
+        datetime: function (v) { if (v instanceof Date) { return v.getTime(); } if (typeof v === 'string') { var ms = Date.parse(v); if (isNum(ms)) { return ms; } } return { error: true }; },
+        guid: function (v) { return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v) ? String(v).toUpperCase() : { error: true }; },
+        object: function (v) { try { return JSON.parse(v); } catch (e) { return { error: true }; } }
+    };
+    function parseByType(value, type) { var f = typeParse.hasOwnProperty(type) ? typeParse[type] : typeParse.object; return f(value); }
+    function getPrefix(name) { return (name !== undefined && name !== null) ? name.substr(0, name.lastIndexOf('.') + 1) : ''; }
+    // read one referenced field's current value from the form, parsed to its declared type
+    function extractModelValue(scope, fieldName, type) {
+        var els = byName(scope, fieldName);
+        if (!els.length) { return null; }
+        var t = (els[0].type || '').toLowerCase(), raw, i;
+        if (t === 'checkbox') { raw = els[0].checked; }
+        else if (t === 'radio') { raw = ''; for (i = 0; i < els.length; i++) { if (els[i].checked) { raw = els[i].value; break; } } }
+        else { raw = els[0].value; }
+        if (raw === null || raw === undefined || raw === '') { return null; }
+        var parsed = parseByType(raw, type);
+        return (parsed && parsed.error) ? null : parsed;
+    }
+    // set a possibly-nested/array field (name like "a.b" or "a[0].b") on the model object
+    function buildField(fieldName, fieldValue, obj) {
+        var props = fieldName.split('.'), parent = obj, i, m, arrPat = /^([a-z_0-9]+)\[([0-9]+)\]$/i, fn;
+        for (i = 0; i < props.length - 1; i++) {
+            fn = props[i]; m = arrPat.exec(fn);
+            if (m) { fn = m[1]; if (!parent.hasOwnProperty(fn)) { parent[fn] = {}; } parent[fn][m[2]] = parent[fn][m[2]] || {}; parent = parent[fn][m[2]]; }
+            else { if (!parent.hasOwnProperty(fn)) { parent[fn] = {}; } parent = parent[fn]; }
+        }
+        fn = props[props.length - 1]; m = arrPat.exec(fn);
+        if (m) { parent[m[1]] = parent[m[1]] || []; parent[m[1]][m[2]] = fieldValue; }
+        else { parent[fn] = fieldValue; }
+    }
+    function buildEAModel(scope, prefix, fieldsMap, constsMap, enumsMap) {
+        var model = {}, name;
+        for (name in fieldsMap) { if (fieldsMap.hasOwnProperty(name)) { buildField(name, extractModelValue(scope, prefix + name, fieldsMap[name]), model); } }
+        for (name in constsMap) { if (constsMap.hasOwnProperty(name)) { buildField(name, constsMap[name], model); } }
+        for (name in enumsMap) { if (enumsMap.hasOwnProperty(name)) { buildField(name, enumsMap[name], model); } } // enumsAsNumbers=true (values already numeric)
+        return model;
+    }
+    function jsonParam(v) { if (v === undefined || v === null) { return undefined; } try { return JSON.parse(v); } catch (e) { return v; } }
+    // evaluate one EA rule for a field. kind = 'assertthat' | 'requiredif'. Mirrors
+    // EA computeAssertThat/computeRequiredIf: assertthat is checked only when the
+    // field has a value; requiredif requires the field when it's empty AND the
+    // condition evaluates true. optimize=on (default) => condition computed lazily.
+    function evalEARule(kind, params, element, scope, fieldValue) {
+        var expression = jsonParam(params.expression);
+        var model = buildEAModel(scope, getPrefix(element.name || ''), jsonParam(params.fieldsmap) || {}, jsonParam(params.constsmap) || {}, jsonParam(params.enumsmap) || {});
+        var v = ((element.type || '').toLowerCase() === 'checkbox') ? element.checked : fieldValue; // EA adjustGivenValue
+        if (kind === 'assertthat') {
+            if (v !== undefined && v !== null && v !== '') { return { valid: !!evalExpr(expression, model) }; }
+            return { valid: true };
+        }
+        var allowEmpty = jsonParam(params.allowempty) === true;
+        var empty = (v === undefined || v === null || v === '' || (typeof v === 'string' && !/\S/.test(v) && !allowEmpty));
+        if (empty) { return { valid: !evalExpr(expression, model) }; }
+        return { valid: true };
+    }
+
     // validate a single element; returns { valid, rule?, message? }.
-    // EA rules (requiredif/assertthat) are collected but evaluated in WS3.3.
+    // Order: requiredif (conditional required) -> required/optional -> standard
+    // rules (present value) -> assertthat. Matches jquery.validate + EA behavior.
     function validateField(element, scope) {
         scope = scope || element.form || document;
-        var rules = readRules(element);
-        var value = getValue(element, scope);
-        var required = !!rules.required; // conditional (requiredif) required is layered in WS3.3
-        if (isBlank(value) && !required) { return { valid: true }; }
-        for (var i = 0; i < RULE_ORDER.length; i++) {
-            var rn = RULE_ORDER[i];
-            if (!rules[rn] || !RULES[rn]) { continue; }
-            if (rn !== 'required' && isBlank(value)) { continue; }
-            if (!RULES[rn](value, rules[rn], element, scope)) { return { valid: false, rule: rn, message: rules[rn].message || '' }; }
+        var rules = readRules(element), value = getValue(element, scope), key, i, rn, r;
+        for (key in rules) {
+            if (rules.hasOwnProperty(key) && key.indexOf('requiredif') === 0) {
+                r = evalEARule('requiredif', rules[key], element, scope, value);
+                if (!r.valid) { return { valid: false, rule: key, message: rules[key].message || '' }; }
+            }
+        }
+        var blank = isBlank(value);
+        if (blank && rules.required) { return { valid: false, rule: 'required', message: rules.required.message || '' }; }
+        if (!blank) {
+            for (i = 0; i < RULE_ORDER.length; i++) {
+                rn = RULE_ORDER[i];
+                if (rn === 'required' || !rules[rn] || !RULES[rn]) { continue; }
+                if (!RULES[rn](value, rules[rn], element, scope)) { return { valid: false, rule: rn, message: rules[rn].message || '' }; }
+            }
+        }
+        // assertthat runs regardless of "blank": for a checkbox, unchecked is a real
+        // value (false) the assertion must see. evalEARule skips genuinely-empty text.
+        for (key in rules) {
+            if (rules.hasOwnProperty(key) && key.indexOf('assertthat') === 0) {
+                r = evalEARule('assertthat', rules[key], element, scope, value);
+                if (!r.valid) { return { valid: false, rule: key, message: rules[key].message || '' }; }
+            }
         }
         return { valid: true };
     }
