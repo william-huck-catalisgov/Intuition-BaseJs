@@ -180,9 +180,14 @@ var basejsvalidate = (function () {
     function byName(scope, name) { return Array.prototype.slice.call((scope || document).querySelectorAll('[name="' + name.replace(/"/g, '\\"') + '"]')); }
     function isBlank(value) { return value === null || value === undefined || trim(String(value)).length === 0; }
     function getValue(element, scope) {
-        var type = (element.type || '').toLowerCase();
-        if (type === 'checkbox') { return element.checked ? (element.value || 'true') : ''; }
-        if (type === 'radio') { var group = byName(scope, element.name), i; for (i = 0; i < group.length; i++) { if (group[i].checked) { return group[i].value; } } return ''; }
+        var type = (element.type || '').toLowerCase(), same, i;
+        if (type === 'checkbox') {
+            if (element.checked) { return element.value || 'true'; }
+            same = byName(scope || element.form || document, element.name); // MVC CheckBoxFor hidden fallback => unchecked has value "false", not blank
+            for (i = 0; i < same.length; i++) { if ((same[i].type || '').toLowerCase() === 'hidden') { return same[i].value; } }
+            return '';
+        }
+        if (type === 'radio') { var group = byName(scope, element.name), j; for (j = 0; j < group.length; j++) { if (group[j].checked) { return group[j].value; } } return ''; }
         return element.value;
     }
     function resolveOtherName(element, other) { if (other && other.indexOf('*.') === 0) { var name = element.name || '', dot = name.lastIndexOf('.'); return (dot >= 0 ? name.substring(0, dot + 1) : '') + other.substring(2); } return other; }
@@ -360,6 +365,8 @@ var DOM = [
     ['required, filled', function () { return fieldValid('<input name="X" data-val="true" data-val-required="r" value="hi">', 'X'); }, true],
     ['required checkbox, unchecked', function () { return fieldValid('<input type="checkbox" name="X" data-val="true" data-val-required="r">', 'X'); }, false],
     ['required checkbox, checked', function () { return fieldValid('<input type="checkbox" name="X" data-val="true" data-val-required="r" checked>', 'X'); }, true],
+    ['MVC bool checkbox unchecked + hidden fallback -> valid', function () { return fieldValid('<input type="checkbox" name="X" data-val="true" data-val-required="r"><input type="hidden" name="X" value="false">', 'X'); }, true],
+    ['MVC bool checkbox checked + hidden fallback -> valid', function () { return fieldValid('<input type="checkbox" name="X" data-val="true" data-val-required="r" checked><input type="hidden" name="X" value="false">', 'X'); }, true],
     ['optional empty w/ length rule', function () { return fieldValid('<input name="X" data-val="true" data-val-length="l" data-val-length-max="5">', 'X'); }, true],
     ['optional empty w/ email rule', function () { return fieldValid('<input name="X" data-val="true" data-val-email="e">', 'X'); }, true],
     ['length max 5, over', function () { return fieldValid('<input name="X" data-val="true" data-val-length="l" data-val-length-max="5" value="abcdef">', 'X'); }, false],

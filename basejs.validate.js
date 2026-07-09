@@ -241,11 +241,22 @@ window.basejsvalidate = (function () {
     }
     function isBlank(value) { return value === null || value === undefined || trim(String(value)).length === 0; }
     function getValue(element, scope) {
-        var type = (element.type || '').toLowerCase();
-        if (type === 'checkbox') { return element.checked ? (element.value || 'true') : ''; }
+        var type = (element.type || '').toLowerCase(), same, i;
+        if (type === 'checkbox') {
+            if (element.checked) { return element.value || 'true'; }
+            // MVC CheckBoxFor renders a same-name hidden fallback (value "false"). When
+            // present, the field ALWAYS has a value, so an unchecked box is not "blank"
+            // — return the hidden's value. This matches server model-binding and the old
+            // jquery-validate behavior (a bool checkbox is not "must be checked"; genuine
+            // consent boxes use AssertThat, not required). A standalone checkbox with no
+            // hidden fallback still reports blank so required means "must check".
+            same = byName(scope || element.form || document, element.name);
+            for (i = 0; i < same.length; i++) { if ((same[i].type || '').toLowerCase() === 'hidden') { return same[i].value; } }
+            return '';
+        }
         if (type === 'radio') {
-            var group = byName(scope, element.name), i;
-            for (i = 0; i < group.length; i++) { if (group[i].checked) { return group[i].value; } }
+            var group = byName(scope, element.name), j;
+            for (j = 0; j < group.length; j++) { if (group[j].checked) { return group[j].value; } }
             return '';
         }
         return element.value;
@@ -501,4 +512,58 @@ window.basejsvalidate = (function () {
         tokenize: tokenize,
         parse: parse
     };
+})();
+
+/* ==========================================================================
+ * WS3.6: self-init + jQuery/EA compatibility bridge
+ * Runs only when this file is bundled (the WS3.6 flip). Attaches validation to
+ * every form on ready, and routes the legacy validation API the app still calls
+ * — .valid() (~19 sites via able.getObject().valid()), $.validator.unobtrusive
+ * .parse() (~17), $.validator.addMethod / ea.* (a few) — to basejs.validate.
+ * This bridges without rewriting those call sites or the able-core wrapper (#16)
+ * while jQuery is still loaded (jQuery leaves at the WS5 tail).
+ * ======================================================================== */
+(function () {
+    var bv = window.basejsvalidate;
+    // --- shims installed SYNCHRONOUSLY at load (jQuery is already loaded by now,
+    // it renders before this bundle) so any later ready-handler calling .valid() /
+    // unobtrusive.parse() / ea.* is covered. Only attachAll waits for DOM ready.
+    if (window.jQuery) {
+        var $ = window.jQuery;
+        // $(x).valid(): validate the whole form (x is a form) or a single field
+        $.fn.valid = function () {
+            if (!this.length) { return true; }
+            var el = this[0], form = (el.tagName === 'FORM') ? el : (el.form || (el.closest ? el.closest('form') : null));
+            if (el.tagName === 'FORM') { return bv.validate(el).valid; }
+            if (!form) { return true; }
+            var r = bv.validateField(el, form);
+            if (r.valid) { bv.clearFieldError(el, form); } else { bv.showFieldError(el, r.message, form); }
+            return r.valid;
+        };
+        $.validator = $.validator || {};
+        $.validator.methods = $.validator.methods || {};
+        $.validator.setDefaults = $.validator.setDefaults || function () { };
+        $.validator.addMethod = function (name, fn) { bv.addMethod(name, fn); };
+        $.validator.unobtrusive = $.validator.unobtrusive || {};
+        $.validator.unobtrusive.adapters = $.validator.unobtrusive.adapters || { add: function () { }, addBool: function () { }, addSingleVal: function () { }, addMinMax: function () { } };
+        // parse(container): (re)attach validation to dynamically-added content
+        $.validator.unobtrusive.parse = function (container) {
+            var c = (container && container.jquery) ? container[0] : container;
+            if (!c) { bv.attachAll(document); return; }
+            if (c.tagName === 'FORM') { bv.attachForm(c); }
+            bv.attachAll(c);
+        };
+    }
+    // EA client removed — compat stub for ea.settings / ea.addMethod callers
+    // (e.g. _EnrollmentLayout's inline ea.settings.dependencyTriggers).
+    window.ea = window.ea || {};
+    window.ea.settings = window.ea.settings || {};
+    if (typeof window.ea.settings.apply !== 'function') { window.ea.settings.apply = function () { }; }
+    window.ea.addMethod = function (n, f) { bv.addMethod(n, f); };
+    window.ea.addValueParser = window.ea.addValueParser || function () { };
+    // attach validation to all forms once the DOM is ready
+    function ready() { bv.attachAll(document); }
+    if (typeof domready === 'function') { domready(ready); }
+    else if (document.readyState !== 'loading') { ready(); }
+    else { document.addEventListener('DOMContentLoaded', ready); }
 })();
